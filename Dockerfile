@@ -7,28 +7,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Set up a new user named "user" with UID 1000 for Hugging Face Spaces security
-RUN useradd -m -u 1000 user
-USER user
-ENV HOME=/home/user \
-    PATH=/home/user/.local/bin:$PATH
-
-WORKDIR $HOME/app
+WORKDIR /app
 
 # Install Python requirements
-COPY --chown=user backend/requirements.txt $HOME/app/backend/requirements.txt
-RUN pip install --no-cache-dir --user -r $HOME/app/backend/requirements.txt
+COPY backend/requirements.txt /app/backend/requirements.txt
+RUN pip install --no-cache-dir -r /app/backend/requirements.txt
 
 # Copy source code
-COPY --chown=user backend/ $HOME/app/backend/
-COPY --chown=user frontend/ $HOME/app/frontend/
+COPY backend/ /app/backend/
+COPY frontend/ /app/frontend/
 
-# Create temporary working directory with write permission
-RUN mkdir -p $HOME/app/temp
+# Create temporary working directory
+RUN mkdir -p /app/temp
 
-# Hugging Face default port is 7860
-EXPOSE 7860
+EXPOSE 8000 10000
 
-ENV PORT=7860
-
-CMD ["sh", "-c", "uvicorn app:app --app-dir backend --host 0.0.0.0 --port ${PORT:-7860}"]
+CMD ["sh", "-c", "uvicorn app:app --app-dir backend --host 0.0.0.0 --port ${PORT:-8000}"]
