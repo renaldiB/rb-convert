@@ -15,22 +15,36 @@ TEMP_DIR.mkdir(exist_ok=True)
 NODE_BIN = shutil.which("node")
 FFMPEG_BIN = shutil.which("ffmpeg")
 
+COOKIES_FILE = Path(__file__).resolve().parent.parent / "cookies.txt"
+
 def get_base_ydl_opts() -> Dict[str, Any]:
     opts: Dict[str, Any] = {
         'quiet': True,
         'no_warnings': True,
         'socket_timeout': 30,
         # Bypass YouTube cloud datacenter bot verification
+        # DO NOT include 'web' as 'web' triggers the bot check on datacenters
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'ios', 'web']
+                'player_client': ['visionos', 'android', 'ios']
             }
         },
+        'remote_components': ['ejs:github'],
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
             'Accept-Language': 'en-US,en;q=0.9',
         }
     }
+    
+    # Check for cookies from env var or file if configured
+    cookies_env = os.environ.get("YOUTUBE_COOKIES")
+    if cookies_env:
+        env_cookie_path = TEMP_DIR / "env_cookies.txt"
+        env_cookie_path.write_text(cookies_env, encoding="utf-8")
+        opts['cookiefile'] = str(env_cookie_path)
+    elif COOKIES_FILE.exists():
+        opts['cookiefile'] = str(COOKIES_FILE)
+
     if NODE_BIN:
         opts['js_runtimes'] = {'node': {}}
     if FFMPEG_BIN:
