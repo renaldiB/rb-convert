@@ -22,13 +22,6 @@ def get_base_ydl_opts() -> Dict[str, Any]:
         'quiet': True,
         'no_warnings': True,
         'socket_timeout': 30,
-        # Bypass YouTube cloud datacenter bot verification
-        # DO NOT include 'web' as 'web' triggers the bot check on datacenters
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['visionos', 'android', 'ios']
-            }
-        },
         'remote_components': ['ejs:github'],
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
@@ -38,14 +31,26 @@ def get_base_ydl_opts() -> Dict[str, Any]:
     
     # Check for cookies from env var or file if configured
     cookies_env = os.environ.get("YOUTUBE_COOKIES")
-    if cookies_env:
+    has_cookies = False
+    if cookies_env and cookies_env.strip():
         env_cookie_path = TEMP_DIR / "env_cookies.txt"
         cleaned_cookies = cookies_env.replace('\\n', '\n').strip()
         if not env_cookie_path.exists() or env_cookie_path.read_text(encoding="utf-8", errors="ignore") != cleaned_cookies:
             env_cookie_path.write_text(cleaned_cookies, encoding="utf-8")
         opts['cookiefile'] = str(env_cookie_path)
+        has_cookies = True
     elif COOKIES_FILE.exists():
         opts['cookiefile'] = str(COOKIES_FILE)
+        has_cookies = True
+
+    # If NO cookies are configured, use mobile/visionos clients to bypass datacenter bot-checks.
+    # If cookies ARE configured, do not override player_client so yt-dlp uses web clients that support cookies!
+    if not has_cookies:
+        opts['extractor_args'] = {
+            'youtube': {
+                'player_client': ['visionos', 'android', 'ios']
+            }
+        }
 
     if NODE_BIN:
         opts['js_runtimes'] = {'node': {}}
