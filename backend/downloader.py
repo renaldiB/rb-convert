@@ -54,16 +54,20 @@ def get_base_ydl_opts() -> Dict[str, Any]:
 
     # For YouTube extractor:
     # 'formats': ['missing_pot'] prevents yt-dlp from dropping formats when PO Token is absent
-    # 'player_client': ['android', 'mweb'] provides robust progressive formats without 403 blocks
+    # 'player_client': ['web_embedded', 'mweb', 'android', 'ios'] provides complete format coverage (never use tv to avoid reload errors)
     opts['extractor_args'] = {
         'youtube': {
             'formats': ['missing_pot'],
-            'player_client': ['android', 'mweb']
+            'player_client': ['web_embedded', 'mweb', 'android', 'ios']
         }
     }
 
-    if NODE_BIN:
-        opts['js_runtimes'] = {'node': {'path': NODE_BIN}}
+    deno_bin = shutil.which("deno")
+    node_bin = shutil.which("node") or shutil.which("nodejs")
+    if deno_bin:
+        opts['js_runtimes'] = {'deno': {'path': deno_bin}}
+    elif node_bin:
+        opts['js_runtimes'] = {'node': {'path': node_bin}}
     else:
         opts['js_runtimes'] = {'node': {}}
     if FFMPEG_BIN:
@@ -182,7 +186,7 @@ def download_media_file(url: str, format_type: str, platform: str) -> Dict[str, 
     })
     
     if format_type == "mp3":
-        fmt_selector = '18/bestaudio*/best*' if platform == "youtube" else 'bestaudio*/best*'
+        fmt_selector = 'bestaudio/bestaudio*/best/18' if platform == "youtube" else 'bestaudio*/best*'
         ydl_opts.update({
             'format': fmt_selector,
             'postprocessors': [{
@@ -196,7 +200,7 @@ def download_media_file(url: str, format_type: str, platform: str) -> Dict[str, 
         
     elif format_type == "mp4":
         # Merge best video + best audio with fallback to best stream
-        fmt_selector = '18/bestvideo*+bestaudio*/best*' if platform == "youtube" else 'bestvideo*+bestaudio*/best*'
+        fmt_selector = 'bestvideo*+bestaudio/bestvideo*+bestaudio*/best/18' if platform == "youtube" else 'bestvideo*+bestaudio*/best*'
         ydl_opts.update({
             'format': fmt_selector,
             'merge_output_format': 'mp4',
@@ -219,21 +223,39 @@ def download_media_file(url: str, format_type: str, platform: str) -> Dict[str, 
                 title = info.get('title') or "media"
         except yt_dlp.utils.DownloadError as e:
             err_msg = str(e)
-            if any(term in err_msg.lower() for term in ("format is not available", "no video formats", "403", "forbidden")):
-                logger.warning(f"Primary format failed ({err_msg[:80]}), attempting fallback download for {url}")
+            logger.warning(f"Primary format failed ({err_msg[:80]}), attempting fallback download for {url}")
+            
+            downloaded = False
+            title = "media"
+            
+            # Fallback 1: If cookies were active, try without cookies (cookies sometimes trigger UNPLAYABLE or no formats)
+            if 'cookiefile' in ydl_opts:
+                try:
+                    logger.info("Attempting Fallback 1: download without cookies...")
+                    fb_no_cookie = dict(ydl_opts)
+                    fb_no_cookie.pop('cookiefile', None)
+                    fb_no_cookie['format'] = 'bestaudio*/best/18' if format_type == "mp3" else 'bestvideo*+bestaudio*/best/18'
+                    with yt_dlp.YoutubeDL(fb_no_cookie) as ydl_nc:
+                        info = ydl_nc.extract_info(url, download=True)
+                        title = info.get('title') or "media"
+                        downloaded = True
+                except Exception as nc_err:
+                    logger.warning(f"Fallback 1 failed: {nc_err}")
+            
+            # Fallback 2: Direct format 18 via android/mweb
+            if not downloaded:
+                logger.info("Attempting Fallback 2: direct format 18 on android/mweb...")
                 fallback_opts = dict(ydl_opts)
-                fallback_opts['format'] = '18/best/bestaudio*/best*' if format_type == "mp3" else '18/bestvideo*+bestaudio*/best*'
+                fallback_opts['format'] = '18/best/b'
                 fallback_opts['extractor_args'] = {
                     'youtube': {
                         'formats': ['missing_pot'],
                         'player_client': ['android', 'mweb']
                     }
                 }
-                with yt_dlp.YoutubeDL(fallback_opts) as ydl:
-                    info = ydl.extract_info(url, download=True)
+                with yt_dlp.YoutubeDL(fallback_opts) as ydl_fb:
+                    info = ydl_fb.extract_info(url, download=True)
                     title = info.get('title') or "media"
-            else:
-                raise
             
         # Locate the downloaded file
         expected_file = TEMP_DIR / f"{download_id}.{expected_ext}"

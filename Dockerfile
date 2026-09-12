@@ -1,11 +1,13 @@
 FROM python:3.12-slim
 
-# Install system dependencies (FFmpeg + Node.js for yt-dlp JS runtime)
+# Install system dependencies (FFmpeg + Node.js + Deno + curl + unzip for yt-dlp JS runtime)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     nodejs \
     curl \
+    unzip \
     && (which node || ln -s $(which nodejs) /usr/local/bin/node) \
+    && (curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh || true) \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
