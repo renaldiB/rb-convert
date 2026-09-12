@@ -31,26 +31,23 @@ def get_base_ydl_opts() -> Dict[str, Any]:
     
     # Check for cookies from env var or file if configured
     cookies_env = os.environ.get("YOUTUBE_COOKIES")
-    has_cookies = False
     if cookies_env and cookies_env.strip():
         env_cookie_path = TEMP_DIR / "env_cookies.txt"
         cleaned_cookies = cookies_env.replace('\\n', '\n').strip()
         if not env_cookie_path.exists() or env_cookie_path.read_text(encoding="utf-8", errors="ignore") != cleaned_cookies:
             env_cookie_path.write_text(cleaned_cookies, encoding="utf-8")
         opts['cookiefile'] = str(env_cookie_path)
-        has_cookies = True
     elif COOKIES_FILE.exists():
         opts['cookiefile'] = str(COOKIES_FILE)
-        has_cookies = True
 
-    # If NO cookies are configured, use mobile/visionos clients to bypass datacenter bot-checks.
-    # If cookies ARE configured, do not override player_client so yt-dlp uses web clients that support cookies!
-    if not has_cookies:
-        opts['extractor_args'] = {
-            'youtube': {
-                'player_client': ['visionos', 'android', 'ios']
-            }
+    # Always use visionos and android clients:
+    # 1. Bypasses "Sign in to confirm you're not a bot" on datacenter IPs
+    # 2. Bypasses "The page needs to be reloaded" caused by tv_downgraded client
+    opts['extractor_args'] = {
+        'youtube': {
+            'player_client': ['visionos', 'android']
         }
+    }
 
     if NODE_BIN:
         opts['js_runtimes'] = {'node': {}}
