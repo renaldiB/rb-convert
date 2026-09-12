@@ -202,6 +202,33 @@ def download_media_file(url: str, format_type: str, platform: str) -> Dict[str, 
         raise HTTPException(status_code=400, detail="Format yang diminta tidak didukung (harus mp3, mp4, atau image).")
 
     try:
+        # First inspect available formats to pick concrete format IDs and diagnose
+        selected_fmt = None
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl_inspect:
+                meta = ydl_inspect.extract_info(url, download=False)
+                all_f = meta.get('formats') or []
+                logger.info(f"[RENDER DEBUG] Formats count={len(all_f)} for {url}")
+                if all_f:
+                    if format_type == "mp3":
+                        audio_candidates = [f for f in all_f if f.get('acodec') not in (None, 'none') or 'audio' in str(f.get('format_note', '')).lower()]
+                        if audio_candidates:
+                            selected_fmt = audio_candidates[-1]['format_id']
+                            logger.info(f"[RENDER DEBUG] Selected concrete audio format_id={selected_fmt}")
+                    elif format_type == "mp4":
+                        video_candidates = [f for f in all_f if f.get('vcodec') not in (None, 'none') or f.get('height')]
+                        audio_candidates = [f for f in all_f if f.get('acodec') not in (None, 'none')]
+                        if video_candidates and audio_candidates:
+                            selected_fmt = f"{video_candidates[-1]['format_id']}+{audio_candidates[-1]['format_id']}"
+                        elif video_candidates:
+                            selected_fmt = video_candidates[-1]['format_id']
+                        logger.info(f"[RENDER DEBUG] Selected concrete video format_id={selected_fmt}")
+        except Exception as inspect_err:
+            logger.warning(f"[RENDER DEBUG] Inspection failed: {inspect_err}")
+
+        if selected_fmt:
+            ydl_opts['format'] = f"{selected_fmt}/{ydl_opts['format']}"
+
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
@@ -211,14 +238,11 @@ def download_media_file(url: str, format_type: str, platform: str) -> Dict[str, 
             if "format is not available" in err_msg.lower() or "no video formats" in err_msg.lower():
                 logger.warning(f"Primary format failed, attempting fallback download for {url}")
                 fallback_opts = dict(ydl_opts)
-                if format_type == "mp3":
-                    fallback_opts['format'] = 'bestaudio*/best/b'
-                else:
-                    fallback_opts['format'] = 'bestvideo*+bestaudio*/b/best'
+                fallback_opts['format'] = 'b/best/bestaudio/bestvideo'
                 fallback_opts['extractor_args'] = {
                     'youtube': {
                         'formats': ['missing_pot'],
-                        'player_client': ['android_vr', 'mweb', 'web']
+                        'player_client': ['android_vr', 'mweb', 'web', 'tv']
                     }
                 }
                 with yt_dlp.YoutubeDL(fallback_opts) as ydl:
