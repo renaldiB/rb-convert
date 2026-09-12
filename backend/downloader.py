@@ -74,6 +74,8 @@ def extract_media_info(url: str, platform: str) -> Dict[str, Any]:
     ydl_opts.update({
         'skip_download': True,
         'extract_flat': False,
+        'ignore_no_formats_error': True,
+        'format': 'all/best/bestvideo*+bestaudio/best*',
     })
     
     try:
@@ -166,7 +168,7 @@ def download_media_file(url: str, format_type: str, platform: str) -> Dict[str, 
     
     if format_type == "mp3":
         ydl_opts.update({
-            'format': 'bestaudio/best',
+            'format': 'bestaudio/best*/best',
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
@@ -177,9 +179,9 @@ def download_media_file(url: str, format_type: str, platform: str) -> Dict[str, 
         mime_type = "audio/mpeg"
         
     elif format_type == "mp4":
-        # Merge best video + best audio
+        # Merge best video + best audio with fallback to best stream
         ydl_opts.update({
-            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best',
+            'format': 'bestvideo*+bestaudio/bestvideo+bestaudio/best*',
             'merge_output_format': 'mp4',
         })
         expected_ext = "mp4"
