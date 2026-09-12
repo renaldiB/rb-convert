@@ -40,7 +40,9 @@ def get_base_ydl_opts() -> Dict[str, Any]:
     cookies_env = os.environ.get("YOUTUBE_COOKIES")
     if cookies_env:
         env_cookie_path = TEMP_DIR / "env_cookies.txt"
-        env_cookie_path.write_text(cookies_env, encoding="utf-8")
+        cleaned_cookies = cookies_env.replace('\\n', '\n').strip()
+        if not env_cookie_path.exists() or env_cookie_path.read_text(encoding="utf-8", errors="ignore") != cleaned_cookies:
+            env_cookie_path.write_text(cleaned_cookies, encoding="utf-8")
         opts['cookiefile'] = str(env_cookie_path)
     elif COOKIES_FILE.exists():
         opts['cookiefile'] = str(COOKIES_FILE)
