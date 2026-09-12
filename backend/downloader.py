@@ -41,21 +41,15 @@ def get_base_ydl_opts() -> Dict[str, Any]:
         opts['cookiefile'] = str(COOKIES_FILE)
 
     # For YouTube extractor:
-    # When cookies are provided, exclude tv_downgraded (which caused reload error)
-    # and let yt-dlp use web/mweb clients to unlock all video and audio formats!
-    # When no cookies are provided, fall back to visionos and android to bypass bot checks.
-    if opts.get('cookiefile'):
-        opts['extractor_args'] = {
-            'youtube': {
-                'player_client': ['-tv_downgraded']
-            }
+    # Use visionos client:
+    # 1. Bypasses bot-check challenges on datacenter IPs
+    # 2. Never triggers "The page needs to be reloaded"
+    # 3. Completely bypasses SABR URL-stripping (yields 40+ stream formats)
+    opts['extractor_args'] = {
+        'youtube': {
+            'player_client': ['visionos']
         }
-    else:
-        opts['extractor_args'] = {
-            'youtube': {
-                'player_client': ['visionos', 'android']
-            }
-        }
+    }
 
     if NODE_BIN:
         opts['js_runtimes'] = {'node': {}}
@@ -176,7 +170,7 @@ def download_media_file(url: str, format_type: str, platform: str) -> Dict[str, 
     
     if format_type == "mp3":
         ydl_opts.update({
-            'format': 'bestaudio/best*/best',
+            'format': 'bestaudio*/best*',
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
@@ -189,7 +183,7 @@ def download_media_file(url: str, format_type: str, platform: str) -> Dict[str, 
     elif format_type == "mp4":
         # Merge best video + best audio with fallback to best stream
         ydl_opts.update({
-            'format': 'bestvideo*+bestaudio/bestvideo+bestaudio/best*',
+            'format': 'bestvideo*+bestaudio*/best*',
             'merge_output_format': 'mp4',
         })
         expected_ext = "mp4"
