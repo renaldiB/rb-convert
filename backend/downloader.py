@@ -44,13 +44,12 @@ def get_base_ydl_opts() -> Dict[str, Any]:
         opts['cookiefile'] = str(COOKIES_FILE)
 
     # For YouTube extractor:
-    # Use visionos client:
-    # 1. Bypasses bot-check challenges on datacenter IPs
-    # 2. Never triggers "The page needs to be reloaded"
-    # 3. Completely bypasses SABR URL-stripping (yields 40+ stream formats)
+    # 1. 'formats': ['missing_pot'] prevents yt-dlp from dropping formats when PO Token is absent
+    # 2. 'player_client': ['mweb', 'visionos', 'android'] provides stream formats compatible with cookies
     opts['extractor_args'] = {
         'youtube': {
-            'player_client': ['visionos']
+            'formats': ['missing_pot'],
+            'player_client': ['mweb', 'visionos', 'android']
         }
     }
 
@@ -218,6 +217,7 @@ def download_media_file(url: str, format_type: str, platform: str) -> Dict[str, 
                     fallback_opts['format'] = 'bestvideo*+bestaudio*/b/best'
                 fallback_opts['extractor_args'] = {
                     'youtube': {
+                        'formats': ['missing_pot'],
                         'player_client': ['android_vr', 'mweb', 'web']
                     }
                 }
