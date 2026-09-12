@@ -5,6 +5,7 @@ import glob
 import asyncio
 import subprocess
 import urllib.parse
+import zipfile
 from html import unescape
 from pathlib import Path
 from typing import Dict, Any, List, Optional
@@ -45,7 +46,6 @@ def get_base_ydl_opts() -> Dict[str, Any]:
         }
     }
     
-    # Check for cookies from env var or file if configured
     cookies_env = os.environ.get("YOUTUBE_COOKIES")
     if cookies_env and cookies_env.strip():
         env_cookie_path = TEMP_DIR / "env_cookies.txt"
@@ -56,9 +56,6 @@ def get_base_ydl_opts() -> Dict[str, Any]:
     elif COOKIES_FILE.exists():
         opts['cookiefile'] = str(COOKIES_FILE)
 
-    # For YouTube extractor:
-    # 'formats': ['missing_pot'] prevents yt-dlp from dropping formats when PO Token is absent
-    # 'player_client': ['web_embedded', 'mweb', 'android', 'ios'] provides complete format coverage
     opts['extractor_args'] = {
         'youtube': {
             'formats': ['missing_pot'],
@@ -92,8 +89,9 @@ def stream_download_to_file(download_url: str, target_path: Path, headers: Optio
     """Streams a remote media file directly to disk with size limit enforcement."""
     if not headers:
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    clean_url = unescape(download_url).replace('\\/', '/').replace('\\u0026', '&').replace('&amp;', '&').strip()
     try:
-        resp = requests.get(download_url, headers=headers, stream=True, timeout=30)
+        resp = requests.get(clean_url, headers=headers, stream=True, timeout=30)
         if resp.status_code != 200:
             raise HTTPException(status_code=400, detail=f"Gagal mengunduh file media dari penyedia (Status {resp.status_code}).")
         bytes_written = 0
@@ -120,32 +118,55 @@ def stream_download_to_file(download_url: str, target_path: Path, headers: Optio
         raise HTTPException(status_code=500, detail=f"Terjadi kesalahan saat mengunduh data: {str(e)}")
 
 def convert_to_mp3_direct(input_path: Path, output_path: Path, bitrate: str = "320") -> None:
-    """Direct FFmpeg MP3 conversion without ffprobe dependency."""
+    """
+    Direct FFmpeg MP3 conversion with multi-encoder fallbacks:
+    1. Try libmp3lame (Standard high-quality)
+    2. Try mp3 (Built-in)
+    3. Try auto-selected encoder
+    """
     ffmpeg_cmd = FFMPEG_BIN or "ffmpeg"
-    cmd = [
-        ffmpeg_cmd,
-        "-y",
-        "-i", str(input_path.resolve()),
-        "-vn",
-        "-c:a", "libmp3lame",
-        "-b:a", f"{bitrate}k",
-        str(output_path.resolve())
+    valid_bitrate = bitrate if bitrate in ("128", "192", "256", "320") else "320"
+    
+    attempts = [
+        [ffmpeg_cmd, "-y", "-i", str(input_path.resolve()), "-vn", "-c:a", "libmp3lame", "-b:a", f"{valid_bitrate}k", str(output_path.resolve())],
+        [ffmpeg_cmd, "-y", "-i", str(input_path.resolve()), "-vn", "-c:a", "mp3", "-b:a", f"{valid_bitrate}k", str(output_path.resolve())],
+        [ffmpeg_cmd, "-y", "-i", str(input_path.resolve()), "-vn", "-b:a", f"{valid_bitrate}k", str(output_path.resolve())]
     ]
-    try:
-        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
-        if res.returncode != 0:
-            err_log = res.stderr.decode("utf-8", errors="ignore")
-            logger.error(f"FFmpeg MP3 conversion failed: {err_log[:300]}")
-            raise HTTPException(status_code=500, detail="Gagal mengonversi audio ke MP3.")
-    except subprocess.TimeoutExpired:
-        raise HTTPException(status_code=504, detail="Proses konversi audio memakan waktu terlalu lama (timeout).")
-    except Exception as e:
-        if isinstance(e, HTTPException):
-            raise
-        raise HTTPException(status_code=500, detail=f"Kesalahan konversi audio: {str(e)}")
+
+    last_stderr = ""
+    for cmd in attempts:
+        try:
+            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
+            if res.returncode == 0 and output_path.exists() and output_path.stat().st_size > 1000:
+                return
+            last_stderr = res.stderr.decode("utf-8", errors="ignore")
+        except subprocess.TimeoutExpired:
+            raise HTTPException(status_code=504, detail="Proses konversi audio memakan waktu terlalu lama (timeout).")
+        except Exception as e:
+            last_stderr = str(e)
+
+    logger.error(f"FFmpeg MP3 conversion failed. Stderr tail: {last_stderr[-500:]}")
+    raise HTTPException(status_code=500, detail="Gagal mengonversi audio ke MP3.")
+
+def create_zip_from_urls(image_urls: List[str], download_id: str, headers: Optional[Dict[str, str]] = None) -> Path:
+    """Downloads all given image URLs and bundles them into a ZIP archive."""
+    zip_path = TEMP_DIR / f"{download_id}.zip"
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zip_f:
+        for idx, img_url in enumerate(image_urls):
+            temp_slide = TEMP_DIR / f"{download_id}_slide_{idx+1}.jpg"
+            try:
+                stream_download_to_file(img_url, temp_slide, headers=headers)
+                zip_f.write(temp_slide, arcname=f"slide_{idx+1:02d}.jpg")
+            finally:
+                if temp_slide.exists():
+                    try:
+                        temp_slide.unlink()
+                    except OSError:
+                        pass
+    return zip_path
 
 # =========================================================================
-# Threads Dedicated Handler (OpenGraph Meta Extraction)
+# Threads Dedicated Handler (Deep Post Media Extraction)
 # =========================================================================
 def extract_og_tag(html: str, tag_name: str) -> Optional[str]:
     p1 = rf'<meta[^>]+(?:property|name)=["\']{re.escape(tag_name)}["\'][^>]+content=["\']([^"\']+)["\']'
@@ -154,51 +175,118 @@ def extract_og_tag(html: str, tag_name: str) -> Optional[str]:
     return unescape(m.group(1).strip()) if m else None
 
 def extract_threads_info(url: str) -> Dict[str, Any]:
-    headers = {
-        'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)',
+    browser_headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-User': '?1',
+        'Sec-Fetch-Dest': 'document',
     }
+    
+    html = ""
+    resp_url = url
     try:
-        resp = requests.get(url, headers=headers, allow_redirects=True, timeout=15)
-        if resp.status_code != 200:
-            raise HTTPException(status_code=400, detail=f"Gagal mengakses halaman Threads (Status {resp.status_code}).")
-        html = resp.text
-    except HTTPException:
-        raise
+        resp = requests.get(url, headers=browser_headers, allow_redirects=True, timeout=15)
+        if resp.status_code == 200:
+            html = resp.text
+            resp_url = str(resp.url)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Gagal menghubungi server Threads: {str(e)}")
+        logger.warning(f"Browser request failed for Threads: {e}")
+
+    # Fallback to crawler UA if initial request failed or was blocked
+    if not html:
+        crawler_headers = {'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)'}
+        try:
+            resp = requests.get(url, headers=crawler_headers, allow_redirects=True, timeout=15)
+            html = resp.text
+            resp_url = str(resp.url)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Gagal mengakses halaman Threads: {str(e)}")
 
     title = extract_og_tag(html, "og:title") or "Threads Post"
-    image = extract_og_tag(html, "og:image") or extract_og_tag(html, "og:image:secure_url") or ""
-    video = extract_og_tag(html, "og:video") or extract_og_tag(html, "og:video:secure_url") or ""
-
     uploader = "Threads User"
-    user_match = re.search(r'@([a-zA-Z0-9._]+)', resp.url) or re.search(r'@([a-zA-Z0-9._]+)', title)
+    user_match = re.search(r'@([a-zA-Z0-9._]+)', resp_url) or re.search(r'@([a-zA-Z0-9._]+)', title)
     if user_match:
         uploader = user_match.group(1)
 
+    # 1. Search for actual post photos in HTML (t51.82787-15 is post photo CDN)
+    matches = re.findall(r'https:[^"\'\s<>\\]*(?:fbcdn\.net|cdninstagram\.com)[^"\'\s<>\\]*', html)
+    by_media_id: Dict[str, List[str]] = {}
+    for m in matches:
+        clean = unescape(m).replace('\\/', '/').replace('\\u0026', '&').replace('&amp;', '&').strip()
+        if 't51.82787-15' in clean:
+            match_id = re.search(r'_(\d{15,20})_', clean)
+            if match_id:
+                mid = match_id.group(1)
+                by_media_id.setdefault(mid, []).append(clean)
+
+    real_images: List[str] = []
+    for mid, urls in by_media_id.items():
+        best = urls[0]
+        for u in urls:
+            if '1080' in u or '1440' in u:
+                best = u
+                break
+        real_images.append(best)
+
+    # 2. Search for videos (.mp4) in HTML
+    video_matches = re.findall(r'https:[^"\'\s<>\\]*(?:fbcdn\.net|cdninstagram\.com)[^"\'\s<>\\]*\.mp4[^"\'\s<>\\]*', html)
+    video = ""
+    if video_matches:
+        video = video_matches[0].replace('\\/', '/').replace('\\u0026', '&')
+    else:
+        og_vid = extract_og_tag(html, "og:video") or extract_og_tag(html, "og:video:secure_url")
+        if og_vid:
+            video = og_vid
+
+    # Fallback to og:image only if no genuine photos were discovered
+    if not real_images and not video:
+        og_img = extract_og_tag(html, "og:image") or extract_og_tag(html, "og:image:secure_url")
+        if og_img:
+            real_images.append(og_img)
+
     has_video = bool(video)
     has_audio = bool(video)
-    is_image = not has_video and bool(image)
-    image_urls = [image] if image else []
+    is_image = not has_video and len(real_images) > 0
+    thumbnail = real_images[0] if real_images else (extract_og_tag(html, "og:image") or "")
+
+    video_qualities = []
+    if has_video:
+        video_qualities.append({
+            "quality": "best",
+            "resolution": "Original (MP4)",
+            "label": "Original (Kualitas Penuh)",
+            "size_mb": None
+        })
+
+    audio_qualities = []
+    if has_audio:
+        audio_qualities = [
+            {"bitrate": "320", "label": "320 kbps (Studio HQ)", "size_mb": None},
+            {"bitrate": "192", "label": "192 kbps (Standar)", "size_mb": None},
+            {"bitrate": "128", "label": "128 kbps (Ringan)", "size_mb": None}
+        ]
 
     return {
         "title": title,
         "uploader": uploader,
         "duration": "N/A",
         "duration_seconds": None,
-        "thumbnail": image,
+        "thumbnail": thumbnail,
         "platform": "threads",
         "has_video": has_video,
         "has_audio": has_audio,
         "is_image": is_image,
-        "image_urls": image_urls,
+        "image_urls": real_images,
+        "video_qualities": video_qualities,
+        "audio_qualities": audio_qualities,
         "url": url,
         "video_url": video,
     }
 
-def download_threads_media(url: str, format_type: str, download_id: str) -> Dict[str, Any]:
+def download_threads_media(url: str, format_type: str, download_id: str, quality: Optional[str] = None, slide_index: Optional[int] = None) -> Dict[str, Any]:
     info = extract_threads_info(url)
     title = info["title"]
     headers = {
@@ -206,15 +294,34 @@ def download_threads_media(url: str, format_type: str, download_id: str) -> Dict
         'Referer': 'https://www.threads.net/'
     }
 
-    if format_type == "image":
-        img_url = info.get("thumbnail") or (info["image_urls"][0] if info.get("image_urls") else None)
-        if not img_url:
+    # ZIP download for all images
+    if format_type == "zip" or (format_type == "image" and slide_index is None and len(info.get("image_urls", [])) > 1):
+        image_urls = info.get("image_urls", [])
+        if not image_urls:
+            raise HTTPException(status_code=404, detail="Tidak ada gambar yang ditemukan untuk diunduh.")
+        zip_path = create_zip_from_urls(image_urls, download_id, headers=headers)
+        return {
+            "file_path": zip_path,
+            "title": f"{title}_all_photos",
+            "ext": "zip",
+            "mime_type": "application/zip"
+        }
+
+    elif format_type == "image":
+        image_urls = info.get("image_urls", [])
+        if not image_urls:
             raise HTTPException(status_code=404, detail="Gambar tidak ditemukan pada postingan Threads ini.")
+        
+        target_idx = 0
+        if slide_index is not None and slide_index > 0:
+            target_idx = min(slide_index - 1, len(image_urls) - 1)
+        
+        img_url = image_urls[target_idx]
         out_path = TEMP_DIR / f"{download_id}.jpg"
         stream_download_to_file(img_url, out_path, headers=headers)
         return {
             "file_path": out_path,
-            "title": title,
+            "title": f"{title}_slide_{target_idx+1}",
             "ext": "jpg",
             "mime_type": "image/jpeg"
         }
@@ -237,7 +344,7 @@ def download_threads_media(url: str, format_type: str, download_id: str) -> Dict
             raw_path = TEMP_DIR / f"raw_{download_id}.mp4"
             stream_download_to_file(video_url, raw_path, headers=headers)
             mp3_path = TEMP_DIR / f"{download_id}.mp3"
-            convert_to_mp3_direct(raw_path, mp3_path)
+            convert_to_mp3_direct(raw_path, mp3_path, bitrate=quality or "320")
             try:
                 raw_path.unlink()
             except OSError:
@@ -272,6 +379,34 @@ def extract_tiktok_info(url: str) -> Dict[str, Any]:
                 thumbnail = d.get("cover") or d.get("origin_cover") or ""
                 has_video = bool(d.get("play") or d.get("wmplay"))
                 has_audio = bool(d.get("music") or has_video)
+                
+                # Approximate size in MB
+                dur = duration or 0
+                video_size_mb = round(d.get("size", 0) / (1024 * 1024), 1) if d.get("size") else (round(dur * 0.18, 1) if dur > 0 else None)
+                
+                video_qualities = []
+                if has_video:
+                    video_qualities.append({
+                        "quality": "hd",
+                        "resolution": "HD Tanpa Watermark",
+                        "label": "HD Tanpa Watermark",
+                        "size_mb": video_size_mb
+                    })
+
+                audio_qualities = []
+                if has_audio:
+                    for br, lbl in [("320", "320 kbps (Studio HQ)"), ("192", "192 kbps (Standar)"), ("128", "128 kbps (Ringan)")]:
+                        mb = round((int(br) * 1000 / 8) * dur / (1024 * 1024), 1) if dur > 0 else None
+                        audio_qualities.append({
+                            "bitrate": br,
+                            "label": lbl,
+                            "size_mb": mb
+                        })
+
+                # Check if TikTok post is an image album / slide
+                images = d.get("images") or []
+                is_image = len(images) > 0 and not has_video
+
                 return {
                     "title": title,
                     "uploader": uploader,
@@ -281,8 +416,10 @@ def extract_tiktok_info(url: str) -> Dict[str, Any]:
                     "platform": "tiktok",
                     "has_video": has_video,
                     "has_audio": has_audio,
-                    "is_image": False,
-                    "image_urls": [],
+                    "is_image": is_image,
+                    "image_urls": images,
+                    "video_qualities": video_qualities,
+                    "audio_qualities": audio_qualities,
                     "url": url,
                     "play_url": d.get("play") or d.get("wmplay"),
                     "music_url": d.get("music")
@@ -292,7 +429,7 @@ def extract_tiktok_info(url: str) -> Dict[str, Any]:
 
     return extract_media_info_ytdlp(url, "tiktok")
 
-def download_tiktok_media(url: str, format_type: str, download_id: str) -> Dict[str, Any]:
+def download_tiktok_media(url: str, format_type: str, download_id: str, quality: Optional[str] = None, slide_index: Optional[int] = None) -> Dict[str, Any]:
     api_url = "https://www.tikwm.com/api/"
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -304,6 +441,28 @@ def download_tiktok_media(url: str, format_type: str, download_id: str) -> Dict[
             if res_json.get("code") == 0:
                 d = res_json.get("data", {})
                 title = d.get("title") or "TikTok Video"
+                
+                # Check for image album
+                images = d.get("images") or []
+                if format_type == "zip" or (format_type == "image" and slide_index is None and len(images) > 1):
+                    zip_path = create_zip_from_urls(images, download_id, headers=headers)
+                    return {
+                        "file_path": zip_path,
+                        "title": f"{title}_photos",
+                        "ext": "zip",
+                        "mime_type": "application/zip"
+                    }
+                elif format_type == "image" and images:
+                    idx = min(max(0, (slide_index or 1) - 1), len(images) - 1)
+                    out_path = TEMP_DIR / f"{download_id}.jpg"
+                    stream_download_to_file(images[idx], out_path, headers=headers)
+                    return {
+                        "file_path": out_path,
+                        "title": f"{title}_slide_{idx+1}",
+                        "ext": "jpg",
+                        "mime_type": "image/jpeg"
+                    }
+
                 if format_type == "mp4":
                     play_url = d.get("play") or d.get("wmplay")
                     if not play_url:
@@ -322,7 +481,7 @@ def download_tiktok_media(url: str, format_type: str, download_id: str) -> Dict[
                         raw_audio = TEMP_DIR / f"raw_{download_id}.audio"
                         stream_download_to_file(music_url, raw_audio, headers=headers)
                         mp3_path = TEMP_DIR / f"{download_id}.mp3"
-                        convert_to_mp3_direct(raw_audio, mp3_path)
+                        convert_to_mp3_direct(raw_audio, mp3_path, bitrate=quality or "320")
                         try:
                             raw_audio.unlink()
                         except OSError:
@@ -340,7 +499,7 @@ def download_tiktok_media(url: str, format_type: str, download_id: str) -> Dict[
                         raw_vid = TEMP_DIR / f"raw_{download_id}.mp4"
                         stream_download_to_file(play_url, raw_vid, headers=headers)
                         mp3_path = TEMP_DIR / f"{download_id}.mp3"
-                        convert_to_mp3_direct(raw_vid, mp3_path)
+                        convert_to_mp3_direct(raw_vid, mp3_path, bitrate=quality or "320")
                         try:
                             raw_vid.unlink()
                         except OSError:
@@ -356,7 +515,7 @@ def download_tiktok_media(url: str, format_type: str, download_id: str) -> Dict[
     except Exception as e:
         logger.warning(f"TikWM download failed ({e}), falling back to yt-dlp")
 
-    return download_media_file_ytdlp(url, format_type, "tiktok", download_id)
+    return download_media_file_ytdlp(url, format_type, "tiktok", download_id, quality, slide_index)
 
 # =========================================================================
 # yt-dlp Core Extraction & Download
@@ -428,6 +587,55 @@ def extract_media_info_ytdlp(url: str, platform: str) -> Dict[str, Any]:
             has_video = not is_image
             has_audio = not is_image
 
+            # Calculate video qualities with estimated sizes in MB
+            video_qualities = []
+            seen_heights = set()
+            dur = duration or 0
+            
+            formats = info.get('formats') or first_entry.get('formats') or []
+            for f in sorted(formats, key=lambda x: (x.get('height') or 0, x.get('tbr') or 0), reverse=True):
+                h = f.get('height')
+                vcodec = f.get('vcodec')
+                if h and vcodec not in (None, 'none') and h not in seen_heights and h >= 144:
+                    seen_heights.add(h)
+                    size_bytes = f.get('filesize') or f.get('filesize_approx')
+                    if not size_bytes and f.get('tbr') and dur:
+                        size_bytes = int((f['tbr'] * 1024 / 8) * dur)
+                    size_mb = round(size_bytes / (1024 * 1024), 1) if size_bytes else None
+                    
+                    note = "Hemat"
+                    if h >= 1080: note = "Full HD"
+                    elif h >= 720: note = "HD"
+                    elif h >= 480: note = "Standar"
+                    
+                    video_qualities.append({
+                        "quality": str(h),
+                        "resolution": f"{h}p",
+                        "label": f"{h}p ({note})",
+                        "size_mb": size_mb
+                    })
+
+            # If platform is Instagram reel or no multi-height formats found, provide default best option
+            if has_video and not video_qualities:
+                approx_mb = round(dur * 0.25, 1) if dur > 0 else None
+                video_qualities.append({
+                    "quality": "best",
+                    "resolution": "Original MP4",
+                    "label": "Original (Kualitas Penuh)",
+                    "size_mb": approx_mb
+                })
+
+            # Calculate audio qualities with estimated sizes in MB
+            audio_qualities = []
+            if has_audio:
+                for br, lbl in [("320", "320 kbps (Studio HQ)"), ("192", "192 kbps (Standar)"), ("128", "128 kbps (Ringan)")]:
+                    mb = round((int(br) * 1000 / 8) * dur / (1024 * 1024), 1) if dur > 0 else None
+                    audio_qualities.append({
+                        "bitrate": br,
+                        "label": lbl,
+                        "size_mb": mb
+                    })
+
             return {
                 "title": title,
                 "uploader": uploader,
@@ -439,6 +647,8 @@ def extract_media_info_ytdlp(url: str, platform: str) -> Dict[str, Any]:
                 "has_audio": has_audio,
                 "is_image": is_image,
                 "image_urls": image_urls,
+                "video_qualities": video_qualities,
+                "audio_qualities": audio_qualities,
                 "url": url
             }
             
@@ -462,14 +672,39 @@ def extract_media_info(url: str, platform: str) -> Dict[str, Any]:
         return extract_tiktok_info(url)
     return extract_media_info_ytdlp(url, platform)
 
-def download_media_file_ytdlp(url: str, format_type: str, platform: str, download_id: str) -> Dict[str, Any]:
+def download_media_file_ytdlp(url: str, format_type: str, platform: str, download_id: str, quality: Optional[str] = None, slide_index: Optional[int] = None) -> Dict[str, Any]:
     """
-    Downloads media file (mp4, mp3, or image) using yt-dlp.
-    For MP3, avoids fragile ffprobe post-processing by downloading the best stream
-    and running direct FFmpeg LAME conversion.
+    Downloads media file (mp4, mp3, image, or zip) using yt-dlp.
+    Supports resolution selection, bitrate selection, and carousel ZIP downloads.
     """
+    # Multi-image ZIP handling for Instagram
+    if format_type == "zip" or (format_type == "image" and slide_index is None and platform == "instagram"):
+        # Check if this is a carousel with multiple images
+        ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True, 'ignore_no_formats_error': True}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            title = info.get('title') or "instagram_photos"
+            entries = info.get('entries')
+            if entries and len(entries) > 1 and format_type == "zip":
+                image_urls = []
+                for e in entries:
+                    thumb = e.get('thumbnail') or (e.get('thumbnails') and e['thumbnails'][0].get('url'))
+                    if thumb:
+                        image_urls.append(thumb)
+                if image_urls:
+                    headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.instagram.com/'}
+                    zip_path = create_zip_from_urls(image_urls, download_id, headers=headers)
+                    return {
+                        "file_path": zip_path,
+                        "title": f"{title}_all_photos",
+                        "ext": "zip",
+                        "mime_type": "application/zip"
+                    }
+
+    if format_type == "image":
+        return download_image_directly(url, download_id, slide_index)
+        
     out_template = str(TEMP_DIR / f"{download_id}.%(ext)s")
-    
     ydl_opts = get_base_ydl_opts()
     ydl_opts.update({
         'max_filesize': 150 * 1024 * 1024,
@@ -486,19 +721,19 @@ def download_media_file_ytdlp(url: str, format_type: str, platform: str, downloa
         mime_type = "audio/mpeg"
         
     elif format_type == "mp4":
-        fmt_selector = 'bestvideo*+bestaudio/bestvideo*+bestaudio*/best/18' if platform == "youtube" else 'bestvideo*+bestaudio*/best*'
+        if quality and quality.isdigit():
+            fmt_selector = f'bestvideo[height<={quality}]+bestaudio/best[height<={quality}]/best'
+        else:
+            fmt_selector = 'bestvideo*+bestaudio/bestvideo*+bestaudio*/best/18' if platform == "youtube" else 'bestvideo*+bestaudio*/best*'
+            
         ydl_opts.update({
             'format': fmt_selector,
             'merge_output_format': 'mp4',
         })
         expected_ext = "mp4"
         mime_type = "video/mp4"
-        
-    elif format_type == "image":
-        return download_image_directly(url, download_id)
-        
     else:
-        raise HTTPException(status_code=400, detail="Format yang diminta tidak didukung (harus mp3, mp4, atau image).")
+        raise HTTPException(status_code=400, detail="Format yang diminta tidak didukung.")
 
     try:
         try:
@@ -512,7 +747,6 @@ def download_media_file_ytdlp(url: str, format_type: str, platform: str, downloa
             downloaded = False
             title = "media"
             
-            # Fallback 1: download without cookies
             if 'cookiefile' in ydl_opts:
                 try:
                     logger.info("Attempting Fallback 1: download without cookies...")
@@ -526,7 +760,6 @@ def download_media_file_ytdlp(url: str, format_type: str, platform: str, downloa
                 except Exception as nc_err:
                     logger.warning(f"Fallback 1 failed: {nc_err}")
             
-            # Fallback 2: direct format 18
             if not downloaded:
                 logger.info("Attempting Fallback 2: direct format 18...")
                 fallback_opts = dict(ydl_opts)
@@ -541,7 +774,7 @@ def download_media_file_ytdlp(url: str, format_type: str, platform: str, downloa
                     info = ydl_fb.extract_info(url, download=True)
                     title = info.get('title') or "media"
 
-        # If MP3 was requested, perform direct FFmpeg audio extraction from downloaded file
+        # If MP3 was requested, perform direct FFmpeg audio extraction with quality bitrate
         if format_type == "mp3":
             mp3_file = TEMP_DIR / f"{download_id}.mp3"
             matching_files = [f for f in TEMP_DIR.glob(f"{download_id}.*") if f != mp3_file]
@@ -549,7 +782,7 @@ def download_media_file_ytdlp(url: str, format_type: str, platform: str, downloa
             if matching_files:
                 downloaded_file = matching_files[0]
                 if downloaded_file.suffix.lower() != ".mp3":
-                    convert_to_mp3_direct(downloaded_file, mp3_file)
+                    convert_to_mp3_direct(downloaded_file, mp3_file, bitrate=quality or "320")
                     try:
                         downloaded_file.unlink()
                     except OSError:
@@ -596,24 +829,26 @@ def download_media_file_ytdlp(url: str, format_type: str, platform: str, downloa
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Kesalahan saat mengunduh: {str(e)}")
 
-def download_media_file(url: str, format_type: str, platform: str) -> Dict[str, Any]:
+def download_media_file(url: str, format_type: str, platform: str, quality: Optional[str] = None, slide_index: Optional[int] = None) -> Dict[str, Any]:
     """Router for media downloading."""
     download_id = uuid.uuid4().hex
     if platform == "threads":
-        return download_threads_media(url, format_type, download_id)
+        return download_threads_media(url, format_type, download_id, quality, slide_index)
     if platform == "tiktok":
-        return download_tiktok_media(url, format_type, download_id)
-    return download_media_file_ytdlp(url, format_type, platform, download_id)
+        return download_tiktok_media(url, format_type, download_id, quality, slide_index)
+    return download_media_file_ytdlp(url, format_type, platform, download_id, quality, slide_index)
 
-def download_image_directly(url: str, download_id: str) -> Dict[str, Any]:
+def download_image_directly(url: str, download_id: str, slide_index: Optional[int] = None) -> Dict[str, Any]:
     """
     Downloads image for Instagram image/carousel posts.
-    Handles specific slide extraction via img_index query parameter.
+    Handles specific slide extraction via slide_index or img_index query parameter.
     """
     parsed = urllib.parse.urlparse(url)
     qs = urllib.parse.parse_qs(parsed.query)
     target_idx = 0
-    if 'img_index' in qs:
+    if slide_index is not None and slide_index > 0:
+        target_idx = slide_index - 1
+    elif 'img_index' in qs:
         try:
             target_idx = max(0, int(qs['img_index'][0]) - 1)
         except (ValueError, IndexError):
@@ -655,7 +890,7 @@ def download_image_directly(url: str, download_id: str) -> Dict[str, Any]:
         stream_download_to_file(img_url, out_path, headers=headers)
         return {
             "file_path": out_path,
-            "title": title,
+            "title": f"{title}_slide_{target_idx+1}",
             "ext": "jpg",
             "mime_type": "image/jpeg"
         }

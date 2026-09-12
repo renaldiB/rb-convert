@@ -3,6 +3,8 @@ FROM python:3.12-slim
 # Install system dependencies (FFmpeg + Node.js + Deno + curl + unzip for yt-dlp JS runtime)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
+    libavcodec-extra \
+    libmp3lame0 \
     nodejs \
     curl \
     unzip \

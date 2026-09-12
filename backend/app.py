@@ -5,6 +5,7 @@ from fastapi import FastAPI, Request, Response, HTTPException, UploadFile, File,
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from typing import Optional
 from starlette.background import BackgroundTasks
 from pydantic import BaseModel, Field
 
@@ -64,7 +65,9 @@ class MediaInfoRequest(BaseModel):
 
 class DownloadRequest(BaseModel):
     url: str = Field(..., max_length=2048, description="URL tautan video/postingan")
-    format: str = Field(..., pattern="^(mp3|mp4|image)$", description="Format output: mp3, mp4, atau image")
+    format: str = Field(..., pattern="^(mp3|mp4|image|zip)$", description="Format output: mp3, mp4, image, atau zip")
+    quality: Optional[str] = Field(None, max_length=50, description="Kualitas video/audio e.g. 1080, 720, 320, 192")
+    slide_index: Optional[int] = Field(None, description="Nomor slide gambar yang ingin diunduh (1-based)")
 
 @app.post("/api/info")
 async def get_info(req: MediaInfoRequest, request: Request):
@@ -87,7 +90,14 @@ async def download_media(req: DownloadRequest, request: Request, background_task
     platform, clean_url = validate_and_classify_url(req.url)
     
     # Download media file in thread pool
-    media = await asyncio.to_thread(download_media_file, clean_url, req.format, platform)
+    media = await asyncio.to_thread(
+        download_media_file,
+        clean_url,
+        req.format,
+        platform,
+        req.quality,
+        req.slide_index
+    )
     
     file_path = media["file_path"]
     filename = f"{sanitize_filename(media['title'])}.{media['ext']}"

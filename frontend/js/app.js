@@ -31,6 +31,16 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnDlMp4 = document.getElementById('btn-dl-mp4');
   const btnDlMp3 = document.getElementById('btn-dl-mp3');
   const btnDlImg = document.getElementById('btn-dl-img');
+  const videoControlCard = document.getElementById('video-control-card');
+  const videoQualitySelect = document.getElementById('video-quality-select');
+  const videoFormatSubtitle = document.getElementById('video-format-subtitle');
+  const audioControlCard = document.getElementById('audio-control-card');
+  const audioQualitySelect = document.getElementById('audio-quality-select');
+  const singleImageCard = document.getElementById('single-image-card');
+  const carouselSection = document.getElementById('carousel-section');
+  const carouselCountBadge = document.getElementById('carousel-count-badge');
+  const btnDlAllZip = document.getElementById('btn-dl-all-zip');
+  const carouselGrid = document.getElementById('carousel-grid');
   const dlProgressBox = document.getElementById('dl-progress-box');
   const dlProgressText = document.getElementById('dl-progress-text');
 
@@ -200,45 +210,83 @@ document.addEventListener('DOMContentLoaded', () => {
       mediaDuration.classList.add('hidden');
     }
 
-    // Format download buttons visibility
+    // Format download buttons & quality selectors visibility
     if (data.has_video) {
-      btnDlMp4.classList.remove('hidden');
-      const mp4Sub = btnDlMp4.querySelector('.action-sub');
-      if (mp4Sub) {
-        mp4Sub.textContent = (data.platform === 'tiktok') 
-          ? 'Video resolusi tinggi tanpa watermark' 
-          : 'Video resolusi tinggi + audio';
+      videoControlCard.classList.remove('hidden');
+      videoQualitySelect.innerHTML = '';
+      if (data.video_qualities && data.video_qualities.length > 0) {
+        data.video_qualities.forEach(v => {
+          const opt = document.createElement('option');
+          opt.value = v.quality;
+          const sizeTxt = v.size_mb ? ` (~${v.size_mb} MB)` : '';
+          opt.textContent = `${v.label || v.resolution}${sizeTxt}`;
+          videoQualitySelect.appendChild(opt);
+        });
+      } else {
+        const opt = document.createElement('option');
+        opt.value = 'best';
+        opt.textContent = 'Resolusi Penuh Asli (MP4)';
+        videoQualitySelect.appendChild(opt);
+      }
+      if (data.platform === 'tiktok') {
+        videoFormatSubtitle.textContent = 'Unduh video MP4 tanpa watermark';
+      } else {
+        videoFormatSubtitle.textContent = 'Pilih kualitas resolusi video:';
       }
     } else {
-      btnDlMp4.classList.add('hidden');
+      videoControlCard.classList.add('hidden');
     }
 
     if (data.has_audio) {
-      btnDlMp3.classList.remove('hidden');
-    } else {
-      btnDlMp3.classList.add('hidden');
-    }
-
-    if (data.is_image || (data.image_urls && data.image_urls.length > 0)) {
-      btnDlImg.classList.remove('hidden');
-      const imgTitleEl = btnDlImg.querySelector('.action-title');
-      if (imgTitleEl) {
-        let slideText = 'Unduh Gambar';
-        try {
-          const urlObj = new URL(data.url);
-          const imgIndex = urlObj.searchParams.get('img_index');
-          if (imgIndex) {
-            slideText = `Unduh Gambar (Slide ${imgIndex})`;
-          } else if (data.image_urls && data.image_urls.length > 1) {
-            slideText = `Unduh Gambar (Slide 1 dari ${data.image_urls.length})`;
-          }
-        } catch {
-          // fallback
-        }
-        imgTitleEl.textContent = slideText;
+      audioControlCard.classList.remove('hidden');
+      audioQualitySelect.innerHTML = '';
+      if (data.audio_qualities && data.audio_qualities.length > 0) {
+        data.audio_qualities.forEach(a => {
+          const opt = document.createElement('option');
+          opt.value = a.bitrate;
+          const sizeTxt = a.size_mb ? ` (~${a.size_mb} MB)` : '';
+          opt.textContent = `${a.label}${sizeTxt}`;
+          audioQualitySelect.appendChild(opt);
+        });
+      } else {
+        const opt = document.createElement('option');
+        opt.value = '320';
+        opt.textContent = '320 kbps (Studio HQ)';
+        audioQualitySelect.appendChild(opt);
       }
     } else {
-      btnDlImg.classList.add('hidden');
+      audioControlCard.classList.add('hidden');
+    }
+
+    // Image & Carousel Handling
+    if (data.image_urls && data.image_urls.length > 1) {
+      singleImageCard.classList.add('hidden');
+      carouselSection.classList.remove('hidden');
+      carouselCountBadge.textContent = `${data.image_urls.length} Foto`;
+      carouselGrid.innerHTML = '';
+      data.image_urls.forEach((imgUrl, idx) => {
+        const card = document.createElement('div');
+        card.className = 'slide-card';
+        card.innerHTML = `
+          <div class="slide-thumb-wrap">
+            <img src="${imgUrl}" alt="Slide ${idx + 1}" class="slide-thumb" loading="lazy">
+            <span class="slide-badge">#${idx + 1}</span>
+          </div>
+          <div class="slide-actions">
+            <button type="button" class="btn-slide-dl" data-slide="${idx + 1}">Unduh Slide #${idx + 1}</button>
+          </div>
+        `;
+        card.querySelector('.btn-slide-dl').addEventListener('click', () => {
+          triggerDownload('image', null, idx + 1);
+        });
+        carouselGrid.appendChild(card);
+      });
+    } else if (data.is_image || (data.image_urls && data.image_urls.length === 1)) {
+      carouselSection.classList.add('hidden');
+      singleImageCard.classList.remove('hidden');
+    } else {
+      carouselSection.classList.add('hidden');
+      singleImageCard.classList.add('hidden');
     }
 
     mediaResult.classList.remove('hidden');
@@ -246,16 +294,22 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Trigger Download Handlers
-  btnDlMp4.addEventListener('click', () => triggerDownload('mp4'));
-  btnDlMp3.addEventListener('click', () => triggerDownload('mp3'));
+  btnDlMp4.addEventListener('click', () => triggerDownload('mp4', videoQualitySelect.value));
+  btnDlMp3.addEventListener('click', () => triggerDownload('mp3', audioQualitySelect.value));
   btnDlImg.addEventListener('click', () => triggerDownload('image'));
+  btnDlAllZip.addEventListener('click', () => triggerDownload('zip'));
 
-  async function triggerDownload(format) {
+  async function triggerDownload(format, quality = null, slideIndex = null) {
     if (!currentMediaData || !currentMediaData.url) return;
 
     dlProgressBox.classList.remove('hidden');
-    const label = format === 'mp3' ? 'audio MP3 (320kbps)' : (format === 'mp4' ? 'video MP4' : 'gambar');
-    dlProgressText.textContent = `Sedang mengunduh dan merender ${label}...`;
+    let label = 'media';
+    if (format === 'zip') label = 'semua foto (ZIP)';
+    else if (format === 'mp3') label = `audio MP3 (${quality || '320'}kbps)`;
+    else if (format === 'mp4') label = `video MP4 (${quality ? `${quality}p` : 'HD'})`;
+    else if (format === 'image') label = slideIndex ? `foto slide #${slideIndex}` : 'foto JPG';
+
+    dlProgressText.textContent = `Sedang mengunduh dan memproses ${label}...`;
     setMediaActionButtonsDisabled(true);
 
     try {
@@ -264,7 +318,9 @@ document.addEventListener('DOMContentLoaded', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           url: currentMediaData.url,
-          format: format
+          format: format,
+          quality: quality,
+          slide_index: slideIndex
         })
       });
 
@@ -280,7 +336,8 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       // Extract filename from header
-      let filename = `download.${format === 'image' ? 'jpg' : format}`;
+      let defaultExt = format === 'image' ? 'jpg' : (format === 'zip' ? 'zip' : format);
+      let filename = `download.${defaultExt}`;
       const disposition = resp.headers.get('Content-Disposition');
       if (disposition) {
         const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
@@ -323,6 +380,8 @@ document.addEventListener('DOMContentLoaded', () => {
     btnDlMp4.disabled = disabled;
     btnDlMp3.disabled = disabled;
     btnDlImg.disabled = disabled;
+    btnDlAllZip.disabled = disabled;
+    document.querySelectorAll('.btn-slide-dl').forEach(btn => btn.disabled = disabled);
   }
 
   // ==========================================
