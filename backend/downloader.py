@@ -12,7 +12,7 @@ import yt_dlp
 TEMP_DIR = Path(__file__).resolve().parent.parent / "temp"
 TEMP_DIR.mkdir(exist_ok=True)
 
-NODE_BIN = shutil.which("node")
+NODE_BIN = shutil.which("node") or shutil.which("nodejs") or shutil.which("deno")
 FFMPEG_BIN = shutil.which("ffmpeg")
 
 COOKIES_FILE = Path(__file__).resolve().parent.parent / "cookies.txt"
@@ -52,6 +52,8 @@ def get_base_ydl_opts() -> Dict[str, Any]:
     }
 
     if NODE_BIN:
+        opts['js_runtimes'] = {'node': {'path': NODE_BIN}}
+    else:
         opts['js_runtimes'] = {'node': {}}
     if FFMPEG_BIN:
         opts['ffmpeg_location'] = FFMPEG_BIN
@@ -198,9 +200,26 @@ def download_media_file(url: str, format_type: str, platform: str) -> Dict[str, 
         raise HTTPException(status_code=400, detail="Format yang diminta tidak didukung (harus mp3, mp4, atau image).")
 
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            title = info.get('title') or "media"
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                title = info.get('title') or "media"
+        except yt_dlp.utils.DownloadError as e:
+            err_msg = str(e)
+            if "format is not available" in err_msg.lower() or "no video formats" in err_msg.lower():
+                logger.warning(f"Primary format failed, attempting fallback download for {url}")
+                fallback_opts = dict(ydl_opts)
+                fallback_opts['format'] = 'b/best/bestvideo+bestaudio/bestvideo*+bestaudio*'
+                fallback_opts['extractor_args'] = {
+                    'youtube': {
+                        'player_client': ['android_vr', 'mweb', 'web']
+                    }
+                }
+                with yt_dlp.YoutubeDL(fallback_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    title = info.get('title') or "media"
+            else:
+                raise
             
         # Locate the downloaded file
         expected_file = TEMP_DIR / f"{download_id}.{expected_ext}"

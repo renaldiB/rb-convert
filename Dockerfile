@@ -5,6 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     nodejs \
     curl \
+    && (which node || ln -s $(which nodejs) /usr/local/bin/node) \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
