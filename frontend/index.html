@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Media Converter & Downloader — Clean & Secure</title>
+  <meta name="description" content="Download dan convert media dari Instagram, Threads, YouTube, dan konversi MP4 ke MP3 lokal dengan cepat, ringan, dan aman.">
+  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-wrapper">
+    <!-- Header -->
+    <header class="site-header">
+      <div class="header-content">
+        <div class="brand">
+          <div class="brand-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+            </svg>
+          </div>
+          <div class="brand-text">
+            <h1>Converter RB</h1>
+            <span class="brand-badge">Fast & Secure</span>
+          </div>
+        </div>
+        <div class="system-status">
+          <span class="status-indicator"></span>
+          <span class="status-label">Engine Ready</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="main-content">
+      <!-- Navigation Tabs -->
+      <nav class="nav-tabs" role="tablist" aria-label="Mode Konversi">
+        <button class="tab-btn active" id="tab-url-btn" role="tab" aria-selected="true" aria-controls="panel-url">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+          </svg>
+          <span>Link Downloader</span>
+        </button>
+        <button class="tab-btn" id="tab-file-btn" role="tab" aria-selected="false" aria-controls="panel-file">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="16" y1="13" x2="8" y2="13"></line>
+            <line x1="16" y1="17" x2="8" y2="17"></line>
+            <polyline points="10 9 9 9 8 9"></polyline>
+          </svg>
+          <span>MP4 ke MP3</span>
+        </button>
+      </nav>
+
+      <!-- Panel 1: URL Downloader -->
+      <section class="tab-panel active" id="panel-url" role="tabpanel" aria-labelledby="tab-url-btn">
+        <div class="panel-intro">
+          <h2>Convert Link Media</h2>
+          <p>Mendukung Instagram (MP4/MP3/Foto), Threads (MP4/MP3), dan YouTube / Shorts (MP4/MP3).</p>
+        </div>
+
+        <!-- URL Input Card -->
+        <div class="card url-card">
+          <form id="url-form" class="url-input-group">
+            <div class="input-wrapper">
+              <span class="input-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <line x1="2" y1="12" x2="22" y2="12"></line>
+                  <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                </svg>
+              </span>
+              <input 
+                type="text" 
+                id="url-input" 
+                placeholder="Tempel tautan Instagram, Threads, atau YouTube di sini..."
+                autocomplete="off" 
+                spellcheck="false"
+                required
+              >
+              <button type="button" id="btn-paste" class="btn-secondary btn-sm" title="Paste dari Clipboard">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+                  <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+                </svg>
+                <span>Paste</span>
+              </button>
+              <button type="button" id="btn-clear" class="btn-icon hidden" title="Hapus">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+
+            <!-- Platform Detector Badge -->
+            <div id="platform-detector" class="platform-detector hidden">
+              <span class="detected-badge" id="detected-platform-badge"></span>
+            </div>
+
+            <button type="submit" id="btn-fetch" class="btn-primary">
+              <span class="btn-text">Analisis Link</span>
+              <span class="btn-spinner hidden"></span>
+            </button>
+          </form>
+        </div>
+
+        <!-- Notification / Error Box -->
+        <div id="url-alert" class="alert-box hidden" role="alert">
+          <svg class="alert-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="8" x2="12" y2="12"></line>
+            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+          </svg>
+          <span id="url-alert-message" class="alert-message"></span>
+        </div>
+
+        <!-- Result Preview Card -->
+        <div id="media-result" class="card result-card hidden">
+          <div class="media-preview">
+            <div class="thumbnail-wrapper">
+              <img id="media-thumb" src="" alt="Thumbnail Pratinjau" class="media-thumbnail">
+              <span id="media-duration" class="media-duration hidden">00:00</span>
+            </div>
+            <div class="media-details">
+              <div class="media-tags">
+                <span id="media-platform-tag" class="tag tag-platform">Platform</span>
+                <span id="media-author" class="tag tag-author">Author</span>
+              </div>
+              <h3 id="media-title" class="media-title">Judul Media</h3>
+              <p class="media-hint">Pilih format unduhan di bawah ini:</p>
+            </div>
+          </div>
+
+          <!-- Download Action Options -->
+          <div class="download-actions">
+            <button id="btn-dl-mp4" class="btn-action action-mp4 hidden">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect>
+                <line x1="7" y1="2" x2="7" y2="22"></line>
+                <line x1="17" y1="2" x2="17" y2="22"></line>
+                <line x1="2" y1="12" x2="22" y2="12"></line>
+                <line x1="2" y1="7" x2="7" y2="7"></line>
+                <line x1="2" y1="17" x2="7" y2="17"></line>
+                <line x1="17" y1="17" x2="22" y2="17"></line>
+                <line x1="17" y1="7" x2="22" y2="7"></line>
+              </svg>
+              <div class="action-info">
+                <span class="action-title">Unduh Video (MP4)</span>
+                <span class="action-sub">Video resolusi tinggi + audio</span>
+              </div>
+              <span class="action-ext">MP4</span>
+            </button>
+
+            <button id="btn-dl-mp3" class="btn-action action-mp3 hidden">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 18V5l12-2v13"></path>
+                <circle cx="6" cy="18" r="3"></circle>
+                <circle cx="18" cy="16" r="3"></circle>
+              </svg>
+              <div class="action-info">
+                <span class="action-title">Unduh Audio (MP3)</span>
+                <span class="action-sub">Audio berkualitas tinggi 320 kbps</span>
+              </div>
+              <span class="action-ext">MP3</span>
+            </button>
+
+            <button id="btn-dl-img" class="btn-action action-img hidden">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                <polyline points="21 15 16 10 5 21"></polyline>
+              </svg>
+              <div class="action-info">
+                <span class="action-title">Unduh Gambar</span>
+                <span class="action-sub">Foto resolusi penuh asli</span>
+              </div>
+              <span class="action-ext">JPG</span>
+            </button>
+          </div>
+
+          <!-- Active Download Progress Indicator -->
+          <div id="dl-progress-box" class="progress-box hidden">
+            <div class="progress-header">
+              <span id="dl-progress-text" class="progress-text">Sedang memproses unduhan...</span>
+              <span class="progress-spinner"></span>
+            </div>
+            <div class="progress-bar-container">
+              <div class="progress-bar-indeterminate"></div>
+            </div>
+            <span class="progress-note">Proses penggabungan audio & video sedang berjalan di server. File akan otomatis terunduh.</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Panel 2: File Converter (MP4 to MP3) -->
+      <section class="tab-panel" id="panel-file" role="tabpanel" aria-labelledby="tab-file-btn">
+        <div class="panel-intro">
+          <h2>Konversi MP4 ke MP3</h2>
+          <p>Ubah video MP4 lokal Anda menjadi file audio MP3 berkualitas tinggi secara instan.</p>
+        </div>
+
+        <div class="card file-card">
+          <!-- Dropzone -->
+          <div id="dropzone" class="dropzone">
+            <input type="file" id="file-input" accept="video/mp4,.mp4" class="hidden-file-input">
+            <div class="dropzone-content">
+              <div class="dropzone-icon">
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="17 8 12 3 7 8"></polyline>
+                  <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg>
+              </div>
+              <h3>Pilih atau Tarik File MP4 ke Sini</h3>
+              <p>Maksimal 150 MB per file • Format didukung: MP4</p>
+              <button type="button" id="btn-browse" class="btn-secondary">Pilih File dari Komputer</button>
+            </div>
+          </div>
+
+          <!-- Selected File Details -->
+          <div id="file-info-box" class="file-info-box hidden">
+            <div class="file-meta">
+              <div class="file-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="23 7 16 12 23 17 23 7"></polygon>
+                  <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+                </svg>
+              </div>
+              <div class="file-text">
+                <span id="selected-file-name" class="file-name">video.mp4</span>
+                <span id="selected-file-size" class="file-size">0 MB</span>
+              </div>
+            </div>
+            <button type="button" id="btn-remove-file" class="btn-icon" title="Hapus File">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
+            </button>
+          </div>
+
+          <!-- Bitrate Selector -->
+          <div class="bitrate-section">
+            <label class="section-label">Pilih Kualitas Bitrate MP3:</label>
+            <div class="bitrate-options">
+              <label class="bitrate-option">
+                <input type="radio" name="bitrate" value="128">
+                <span class="radio-card">
+                  <span class="bitrate-rate">128 kbps</span>
+                  <span class="bitrate-desc">Ukuran Ringan</span>
+                </span>
+              </label>
+              <label class="bitrate-option">
+                <input type="radio" name="bitrate" value="192" checked>
+                <span class="radio-card">
+                  <span class="bitrate-rate">192 kbps</span>
+                  <span class="bitrate-desc">Standar (Optimal)</span>
+                </span>
+              </label>
+              <label class="bitrate-option">
+                <input type="radio" name="bitrate" value="320">
+                <span class="radio-card">
+                  <span class="bitrate-rate">320 kbps</span>
+                  <span class="bitrate-desc">Studio High-Fi</span>
+                </span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Convert Button -->
+          <button type="button" id="btn-convert" class="btn-primary btn-block" disabled>
+            <span class="btn-text">Konversi Sekarang ke MP3</span>
+            <span class="btn-spinner hidden"></span>
+          </button>
+
+          <!-- File Alert Box -->
+          <div id="file-alert" class="alert-box hidden" role="alert">
+            <svg class="alert-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="8" x2="12" y2="12"></line>
+              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+            <span id="file-alert-message" class="alert-message"></span>
+          </div>
+
+          <!-- Conversion Progress -->
+          <div id="convert-progress-box" class="progress-box hidden">
+            <div class="progress-header">
+              <span id="convert-progress-text" class="progress-text">Mengunggah & mengonversi dengan FFmpeg...</span>
+              <span class="progress-spinner"></span>
+            </div>
+            <div class="progress-bar-container">
+              <div class="progress-bar-indeterminate"></div>
+            </div>
+            <span class="progress-note">Konversi berjalan dengan kecepatan penuh. Audio MP3 akan otomatis diunduh saat selesai.</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Platform Support Info Footer -->
+      <footer class="site-footer">
+        <div class="security-pills">
+          <div class="sec-pill">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+            <span>Anti-Injection Guard</span>
+          </div>
+          <div class="sec-pill">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+            <span>SSRF Protection</span>
+          </div>
+          <div class="sec-pill">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            <span>Auto Cleanup</span>
+          </div>
+        </div>
+        <p class="footer-copy">Converter RB • Arsitektur Aman & Minimalis • Zero Bloat</p>
+      </footer>
+    </main>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
