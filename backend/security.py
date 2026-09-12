@@ -19,6 +19,11 @@ ALLOWED_DOMAINS = {
     "threads": [
         re.compile(r"^(?:[a-zA-Z0-9-]+\.)*threads\.net$"),
         re.compile(r"^(?:[a-zA-Z0-9-]+\.)*threads\.com$")
+    ],
+    "tiktok": [
+        re.compile(r"^(?:[a-zA-Z0-9-]+\.)*tiktok\.com$"),
+        re.compile(r"^vt\.tiktok\.com$"),
+        re.compile(r"^vm\.tiktok\.com$")
     ]
 }
 
@@ -121,7 +126,7 @@ def validate_and_classify_url(raw_url: str) -> Tuple[str, str]:
     if not matched_platform:
         raise HTTPException(
             status_code=400,
-            detail="Domain tidak didukung. Layanan ini hanya mendukung YouTube, Instagram, dan Threads."
+            detail="Domain tidak didukung. Layanan ini mendukung YouTube, Instagram, Threads, dan TikTok."
         )
     
     # Anti-SSRF: Resolve hostname to IP and ensure it is not private/loopback/metadata

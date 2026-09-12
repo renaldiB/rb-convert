@@ -97,6 +97,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (url.includes('threads.net') || url.includes('threads.com')) {
       return { id: 'threads', name: 'Threads Post' };
     }
+    if (url.includes('tiktok.com')) {
+      return { id: 'tiktok', name: 'TikTok Video' };
+    }
     return null;
   }
 
@@ -179,7 +182,8 @@ document.addEventListener('DOMContentLoaded', () => {
   function displayMediaResult(data) {
     // Safe text assignments (prevents XSS)
     mediaTitle.textContent = data.title || 'Untitled Media';
-    mediaAuthor.textContent = `@${data.uploader || 'Creator'}`;
+    const authorName = data.uploader ? (data.uploader.startsWith('@') ? data.uploader : `@${data.uploader}`) : '@Creator';
+    mediaAuthor.textContent = authorName;
     mediaPlatformTag.textContent = (data.platform || 'Media').toUpperCase();
 
     if (data.thumbnail) {
@@ -199,6 +203,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // Format download buttons visibility
     if (data.has_video) {
       btnDlMp4.classList.remove('hidden');
+      const mp4Sub = btnDlMp4.querySelector('.action-sub');
+      if (mp4Sub) {
+        mp4Sub.textContent = (data.platform === 'tiktok') 
+          ? 'Video resolusi tinggi tanpa watermark' 
+          : 'Video resolusi tinggi + audio';
+      }
     } else {
       btnDlMp4.classList.add('hidden');
     }
@@ -211,6 +221,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (data.is_image || (data.image_urls && data.image_urls.length > 0)) {
       btnDlImg.classList.remove('hidden');
+      const imgTitleEl = btnDlImg.querySelector('.action-title');
+      if (imgTitleEl) {
+        let slideText = 'Unduh Gambar';
+        try {
+          const urlObj = new URL(data.url);
+          const imgIndex = urlObj.searchParams.get('img_index');
+          if (imgIndex) {
+            slideText = `Unduh Gambar (Slide ${imgIndex})`;
+          } else if (data.image_urls && data.image_urls.length > 1) {
+            slideText = `Unduh Gambar (Slide 1 dari ${data.image_urls.length})`;
+          }
+        } catch {
+          // fallback
+        }
+        imgTitleEl.textContent = slideText;
+      }
     } else {
       btnDlImg.classList.add('hidden');
     }

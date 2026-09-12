@@ -39,11 +39,22 @@ class TestSecurity(unittest.TestCase):
     def test_valid_threads_urls(self):
         urls = [
             "https://www.threads.net/@user/post/C8xYz12345",
-            "https://threads.net/@user/post/C8xYz12345"
+            "https://threads.net/@user/post/C8xYz12345",
+            "https://www.threads.com/share/BAPUk50CC7/"
         ]
         for url in urls:
             platform, clean = validate_and_classify_url(url)
             self.assertEqual(platform, "threads")
+
+    def test_valid_tiktok_urls(self):
+        urls = [
+            "https://www.tiktok.com/@user/video/7106594312292453675",
+            "https://vt.tiktok.com/ZS2x6N3V5/",
+            "https://vm.tiktok.com/ZS2x6N3V5/"
+        ]
+        for url in urls:
+            platform, clean = validate_and_classify_url(url)
+            self.assertEqual(platform, "tiktok")
 
     def test_unsupported_or_malicious_domains(self):
         evil_urls = [
