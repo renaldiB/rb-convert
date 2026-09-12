@@ -40,14 +40,22 @@ def get_base_ydl_opts() -> Dict[str, Any]:
     elif COOKIES_FILE.exists():
         opts['cookiefile'] = str(COOKIES_FILE)
 
-    # Always use visionos and android clients:
-    # 1. Bypasses "Sign in to confirm you're not a bot" on datacenter IPs
-    # 2. Bypasses "The page needs to be reloaded" caused by tv_downgraded client
-    opts['extractor_args'] = {
-        'youtube': {
-            'player_client': ['visionos', 'android']
+    # For YouTube extractor:
+    # When cookies are provided, exclude tv_downgraded (which caused reload error)
+    # and let yt-dlp use web/mweb clients to unlock all video and audio formats!
+    # When no cookies are provided, fall back to visionos and android to bypass bot checks.
+    if opts.get('cookiefile'):
+        opts['extractor_args'] = {
+            'youtube': {
+                'player_client': ['-tv_downgraded']
+            }
         }
-    }
+    else:
+        opts['extractor_args'] = {
+            'youtube': {
+                'player_client': ['visionos', 'android']
+            }
+        }
 
     if NODE_BIN:
         opts['js_runtimes'] = {'node': {}}
