@@ -7,7 +7,10 @@ from typing import Dict, Any, List, Optional
 import requests
 from fastapi import HTTPException
 import shutil
+import logging
 import yt_dlp
+
+logger = logging.getLogger("downloader")
 
 TEMP_DIR = Path(__file__).resolve().parent.parent / "temp"
 TEMP_DIR.mkdir(exist_ok=True)
@@ -209,7 +212,10 @@ def download_media_file(url: str, format_type: str, platform: str) -> Dict[str, 
             if "format is not available" in err_msg.lower() or "no video formats" in err_msg.lower():
                 logger.warning(f"Primary format failed, attempting fallback download for {url}")
                 fallback_opts = dict(ydl_opts)
-                fallback_opts['format'] = 'b/best/bestvideo+bestaudio/bestvideo*+bestaudio*'
+                if format_type == "mp3":
+                    fallback_opts['format'] = 'bestaudio*/best/b'
+                else:
+                    fallback_opts['format'] = 'bestvideo*+bestaudio*/b/best'
                 fallback_opts['extractor_args'] = {
                     'youtube': {
                         'player_client': ['android_vr', 'mweb', 'web']
