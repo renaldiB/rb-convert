@@ -107,7 +107,7 @@ def get_base_ydl_opts() -> Dict[str, Any]:
     opts['extractor_args'] = {
         'youtube': {
             'formats': ['missing_pot'],
-            'player_client': ['android', 'mweb']
+            'player_client': ['visionos', 'android']
         }
     }
 
@@ -1263,7 +1263,7 @@ def download_media_file_ytdlp(url: str, format_type: str, platform: str, downloa
                 fallback_opts['extractor_args'] = {
                     'youtube': {
                         'formats': ['missing_pot'],
-                        'player_client': ['android_vr', 'android', 'mweb']
+                        'player_client': ['visionos', 'android']
                     }
                 }
                 with yt_dlp.YoutubeDL(fallback_opts) as ydl_fb:
