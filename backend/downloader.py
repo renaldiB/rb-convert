@@ -911,6 +911,9 @@ def download_tiktok_media(url: str, format_type: str, download_id: str, quality:
 def extract_media_info_ytdlp(url: str, platform: str) -> Dict[str, Any]:
     """Extracts media metadata using yt-dlp with support for mixed media carousels."""
     ydl_opts = get_base_ydl_opts()
+    if platform == "instagram":
+        ydl_opts['http_headers']['User-Agent'] = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1'
+        ydl_opts['http_headers']['Accept-Language'] = 'en-US,en;q=0.9'
     ydl_opts.update({
         'skip_download': True,
         'extract_flat': 'in_playlist',
@@ -1112,6 +1115,11 @@ def download_media_file_ytdlp(url: str, format_type: str, platform: str, downloa
         
         if not media_items:
             ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True, 'ignore_no_formats_error': True}
+            if platform == "instagram":
+                ydl_opts['http_headers'] = {
+                    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
                 title = info.get('title') or "instagram_media"
@@ -1142,6 +1150,9 @@ def download_media_file_ytdlp(url: str, format_type: str, platform: str, downloa
         
     out_template = str(TEMP_DIR / f"{download_id}.%(ext)s")
     ydl_opts = get_base_ydl_opts()
+    if platform == "instagram":
+        ydl_opts['http_headers']['User-Agent'] = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1'
+        ydl_opts['http_headers']['Accept-Language'] = 'en-US,en;q=0.9'
     ydl_opts.update({
         'max_filesize': 150 * 1024 * 1024,
         'outtmpl': out_template,
@@ -1153,7 +1164,7 @@ def download_media_file_ytdlp(url: str, format_type: str, platform: str, downloa
         if platform == "youtube":
             fmt_selector = 'bestaudio/bestaudio*/best[acodec!=none]/18'
         elif platform == "instagram":
-            fmt_selector = 'bestaudio/0/1/2/3/bestaudio*'
+            fmt_selector = 'bestaudio/bestaudio*/best[acodec!=none]/1/2/3'
         else:
             fmt_selector = 'bestaudio/bestaudio*/best[acodec!=none]'
         ydl_opts.update({
@@ -1167,14 +1178,14 @@ def download_media_file_ytdlp(url: str, format_type: str, platform: str, downloa
             if platform == "youtube":
                 fmt_selector = f'bestvideo[height<={quality}]+bestaudio/best[height<={quality}]/best'
             elif platform == "instagram":
-                fmt_selector = f'bestvideo[height<={quality}]+bestaudio/0/1/2/3/bestvideo+bestaudio'
+                fmt_selector = f'bestvideo[height<={quality}]+bestaudio/best[height<={quality}][acodec!=none]/1/2/3/bestvideo+bestaudio'
             else:
                 fmt_selector = f'bestvideo[height<={quality}]+bestaudio/best[height<={quality}][acodec!=none]/bestvideo+bestaudio'
         else:
             if platform == "youtube":
                 fmt_selector = 'bestvideo*+bestaudio/bestvideo*+bestaudio*/best/18'
             elif platform == "instagram":
-                fmt_selector = 'bestvideo+bestaudio/0/1/2/3/bestvideo*+bestaudio*'
+                fmt_selector = 'bestvideo+bestaudio/bestvideo*+bestaudio*/best[acodec!=none]/1/2/3'
             else:
                 fmt_selector = 'bestvideo+bestaudio/bestvideo*+bestaudio*'
             
@@ -1208,14 +1219,14 @@ def download_media_file_ytdlp(url: str, format_type: str, platform: str, downloa
                         if platform == "youtube":
                             fb_no_cookie['format'] = 'bestaudio/bestaudio*/best[acodec!=none]/18'
                         elif platform == "instagram":
-                            fb_no_cookie['format'] = 'bestaudio/0/1/2/3/bestaudio*'
+                            fb_no_cookie['format'] = 'bestaudio/bestaudio*/best[acodec!=none]/1/2/3'
                         else:
                             fb_no_cookie['format'] = 'bestaudio/bestaudio*/best[acodec!=none]'
                     else:
                         if platform == "youtube":
                             fb_no_cookie['format'] = 'bestvideo*+bestaudio*/best/18'
                         elif platform == "instagram":
-                            fb_no_cookie['format'] = 'bestvideo+bestaudio/0/1/2/3/bestvideo*+bestaudio*'
+                            fb_no_cookie['format'] = 'bestvideo+bestaudio/bestvideo*+bestaudio*/best[acodec!=none]/1/2/3'
                         else:
                             fb_no_cookie['format'] = 'bestvideo+bestaudio/bestvideo*+bestaudio*'
                     with yt_dlp.YoutubeDL(fb_no_cookie) as ydl_nc:
@@ -1232,14 +1243,14 @@ def download_media_file_ytdlp(url: str, format_type: str, platform: str, downloa
                     if platform == "youtube":
                         fallback_opts['format'] = '18/best[acodec!=none]/b'
                     elif platform == "instagram":
-                        fallback_opts['format'] = 'bestaudio/0/1/2/3'
+                        fallback_opts['format'] = 'bestaudio/bestaudio*/best[acodec!=none]/1/2/3'
                     else:
                         fallback_opts['format'] = 'bestaudio/best[acodec!=none]'
                 else:
                     if platform == "youtube":
                         fallback_opts['format'] = '18/best/b'
                     elif platform == "instagram":
-                        fallback_opts['format'] = 'bestvideo+bestaudio/0/1/2/3'
+                        fallback_opts['format'] = 'bestvideo+bestaudio/best[acodec!=none]/1/2/3'
                     else:
                         fallback_opts['format'] = 'bestvideo+bestaudio/best'
                 fallback_opts['extractor_args'] = {
@@ -1359,7 +1370,11 @@ def download_image_directly(url: str, download_id: str, slide_index: Optional[in
             'quiet': True,
             'no_warnings': True,
             'skip_download': True,
-            'ignore_no_formats_error': True
+            'ignore_no_formats_error': True,
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+                'Accept-Language': 'en-US,en;q=0.9',
+            }
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
