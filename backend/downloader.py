@@ -91,8 +91,6 @@ def get_base_ydl_opts() -> Dict[str, Any]:
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
             'Accept-Language': 'en-US,en;q=0.9',
-            'X-Forwarded-For': '114.122.14.50',
-            'Client-IP': '114.122.14.50',
         }
     }
     
