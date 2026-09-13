@@ -107,7 +107,7 @@ def get_base_ydl_opts() -> Dict[str, Any]:
     opts['extractor_args'] = {
         'youtube': {
             'formats': ['missing_pot'],
-            'player_client': ['visionos', 'android']
+            'player_client': ['web', 'visionos', 'android'] if 'cookiefile' in opts else ['visionos', 'android']
         }
     }
 
@@ -1223,19 +1223,15 @@ def download_media_file_ytdlp(url: str, format_type: str, platform: str, downloa
                     fb_no_cookie = dict(ydl_opts)
                     fb_no_cookie.pop('cookiefile', None)
                     if format_type == "mp3":
-                        if platform == "youtube":
-                            fb_no_cookie['format'] = 'bestaudio/bestaudio*/best[acodec!=none]/18'
-                        elif platform == "instagram":
-                            fb_no_cookie['format'] = 'bestaudio/bestaudio*/best[acodec!=none]/1/2/3'
-                        else:
-                            fb_no_cookie['format'] = 'bestaudio/bestaudio*/best[acodec!=none]'
+                        fb_no_cookie['format'] = 'bestaudio/bestaudio*/best'
                     else:
-                        if platform == "youtube":
-                            fb_no_cookie['format'] = 'bestvideo*+bestaudio*/best/18'
-                        elif platform == "instagram":
-                            fb_no_cookie['format'] = 'bestvideo+bestaudio/bestvideo*+bestaudio*/best[acodec!=none]/1/2/3'
-                        else:
-                            fb_no_cookie['format'] = 'bestvideo+bestaudio/bestvideo*+bestaudio*'
+                        fb_no_cookie['format'] = 'bestvideo*+bestaudio/best'
+                    fb_no_cookie['extractor_args'] = {
+                        'youtube': {
+                            'formats': ['missing_pot'],
+                            'player_client': ['visionos', 'android']
+                        }
+                    }
                     with yt_dlp.YoutubeDL(fb_no_cookie) as ydl_nc:
                         info = ydl_nc.extract_info(url, download=True)
                         title = info.get('title') or "media"
@@ -1246,6 +1242,7 @@ def download_media_file_ytdlp(url: str, format_type: str, platform: str, downloa
             if not downloaded:
                 logger.info("Attempting Fallback 2: robust format fallback...")
                 fallback_opts = dict(ydl_opts)
+                fallback_opts.pop('cookiefile', None)
                 if format_type == "mp3":
                     if platform == "youtube":
                         fallback_opts['format'] = 'bestaudio/bestaudio*/best'
