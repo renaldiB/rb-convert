@@ -258,27 +258,56 @@ document.addEventListener('DOMContentLoaded', () => {
       audioControlCard.classList.add('hidden');
     }
 
-    // Image & Carousel Handling
-    if (data.image_urls && data.image_urls.length > 1) {
+    // Image & Mixed Media Carousel Handling
+    const items = (data.media_items && data.media_items.length > 1) 
+      ? data.media_items 
+      : (data.image_urls && data.image_urls.length > 1) 
+        ? data.image_urls.map((u, i) => ({ index: i + 1, type: 'image', url: u, thumbnail: u }))
+        : [];
+
+    if (items.length > 1) {
       singleImageCard.classList.add('hidden');
       carouselSection.classList.remove('hidden');
-      carouselCountBadge.textContent = `${data.image_urls.length} Foto`;
+      carouselCountBadge.textContent = `${items.length} Item`;
       carouselGrid.innerHTML = '';
-      data.image_urls.forEach((imgUrl, idx) => {
+      
+      items.forEach((item, idx) => {
+        const isVideo = item.type === 'video';
+        const thumbUrl = item.thumbnail || item.url;
         const card = document.createElement('div');
         card.className = 'slide-card';
         card.innerHTML = `
           <div class="slide-thumb-wrap">
-            <img src="${imgUrl}" alt="Slide ${idx + 1}" class="slide-thumb" loading="lazy">
+            <img src="${thumbUrl}" alt="Slide ${idx + 1}" class="slide-thumb" loading="lazy">
             <span class="slide-badge">#${idx + 1}</span>
+            <span class="slide-type-badge ${isVideo ? 'type-video' : 'type-image'}">${isVideo ? '🎥 Video' : '📷 Foto'}</span>
           </div>
           <div class="slide-actions">
-            <button type="button" class="btn-slide-dl" data-slide="${idx + 1}">Unduh Slide #${idx + 1}</button>
+            ${isVideo ? `
+              <button type="button" class="btn-slide-dl btn-slide-video" data-slide="${idx + 1}">
+                <span>Unduh MP4</span>
+              </button>
+              <button type="button" class="btn-slide-dl btn-slide-audio" data-slide="${idx + 1}">
+                <span>Unduh MP3</span>
+              </button>
+            ` : `
+              <button type="button" class="btn-slide-dl" data-slide="${idx + 1}">
+                <span>Unduh Foto</span>
+              </button>
+            `}
           </div>
         `;
-        card.querySelector('.btn-slide-dl').addEventListener('click', () => {
-          triggerDownload('image', null, idx + 1);
-        });
+
+        if (isVideo) {
+          const btnVideo = card.querySelector('.btn-slide-video');
+          const btnAudio = card.querySelector('.btn-slide-audio');
+          btnVideo.addEventListener('click', () => triggerDownload('mp4', null, idx + 1));
+          btnAudio.addEventListener('click', () => triggerDownload('mp3', '320', idx + 1));
+        } else {
+          const btnImg = card.querySelector('.btn-slide-dl');
+          btnImg.addEventListener('click', () => triggerDownload('image', null, idx + 1));
+        }
+
         carouselGrid.appendChild(card);
       });
     } else if (data.is_image || (data.image_urls && data.image_urls.length === 1)) {
@@ -304,10 +333,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     dlProgressBox.classList.remove('hidden');
     let label = 'media';
-    if (format === 'zip') label = 'semua foto (ZIP)';
-    else if (format === 'mp3') label = `audio MP3 (${quality || '320'}kbps)`;
-    else if (format === 'mp4') label = `video MP4 (${quality ? `${quality}p` : 'HD'})`;
-    else if (format === 'image') label = slideIndex ? `foto slide #${slideIndex}` : 'foto JPG';
+    if (format === 'zip') label = 'semua media (.ZIP)';
+    else if (format === 'mp3') label = slideIndex ? `audio slide #${slideIndex} (MP3)` : `audio MP3 (${quality || '320'}kbps)`;
+    else if (format === 'mp4') label = slideIndex ? `video slide #${slideIndex} (MP4)` : `video MP4 (${quality ? `${quality}p` : 'HD'})`;
+    else if (format === 'image') label = slideIndex ? `foto slide #${slideIndex} (JPG)` : 'foto JPG';
 
     dlProgressText.textContent = `Sedang mengunduh dan memproses ${label}...`;
     setMediaActionButtonsDisabled(true);

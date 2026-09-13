@@ -1,11 +1,16 @@
 import os
+import time
 import asyncio
+import logging
 from pathlib import Path
+from contextlib import asynccontextmanager
+from typing import Optional
+
+import requests
 from fastapi import FastAPI, Request, Response, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Optional
 from starlette.background import BackgroundTasks
 from pydantic import BaseModel, Field
 
@@ -21,14 +26,51 @@ from security import (
 from downloader import extract_media_info, download_media_file
 from converter import save_uploaded_file, convert_mp4_to_mp3, cleanup_file
 
+logger = logging.getLogger("app")
+
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 TEMP_DIR = Path(__file__).resolve().parent.parent / "temp"
 TEMP_DIR.mkdir(exist_ok=True)
 
+APP_START_TIME = time.time()
+
+# -------------------------------------------------------------------------
+# Keep-Alive Background Worker for Render (Prevents Spin-Down/Sleep)
+# -------------------------------------------------------------------------
+async def keep_alive_worker():
+    """
+    Periodically sends an HTTP GET request to self every 10 minutes (600s).
+    This resets Render's 15-minute idle inactivity timer, keeping the web service awake 24/7.
+    """
+    ping_interval = 600  # 10 minutes
+    # Wait 60 seconds after startup before the first ping
+    await asyncio.sleep(60)
+    while True:
+        render_url = os.environ.get("RENDER_EXTERNAL_URL") or os.environ.get("SELF_PING_URL")
+        if render_url:
+            target = f"{render_url.rstrip('/')}/api/health"
+            try:
+                res = await asyncio.to_thread(requests.get, target, timeout=15)
+                logger.info(f"Keep-alive self-ping sent to {target} (Status: {res.status_code})")
+            except Exception as e:
+                logger.warning(f"Keep-alive self-ping to {target} failed: {e}")
+        await asyncio.sleep(ping_interval)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    keep_alive_task = asyncio.create_task(keep_alive_worker())
+    logger.info("Application startup complete. Keep-alive background worker active.")
+    try:
+        yield
+    finally:
+        keep_alive_task.cancel()
+        logger.info("Keep-alive background worker stopped.")
+
 app = FastAPI(
     title="Secure Media Downloader & Converter",
     description="Clean, lightweight, secure converter for Instagram, Threads, YouTube, and local MP4-to-MP3.",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # CORS Middleware
@@ -67,7 +109,7 @@ class DownloadRequest(BaseModel):
     url: str = Field(..., max_length=2048, description="URL tautan video/postingan")
     format: str = Field(..., pattern="^(mp3|mp4|image|zip)$", description="Format output: mp3, mp4, image, atau zip")
     quality: Optional[str] = Field(None, max_length=50, description="Kualitas video/audio e.g. 1080, 720, 320, 192")
-    slide_index: Optional[int] = Field(None, description="Nomor slide gambar yang ingin diunduh (1-based)")
+    slide_index: Optional[int] = Field(None, description="Nomor slide gambar/video yang ingin diunduh (1-based)")
 
 @app.post("/api/info")
 async def get_info(req: MediaInfoRequest, request: Request):
@@ -160,8 +202,17 @@ async def convert_file(
     )
 
 @app.get("/api/health")
+@app.get("/api/ping")
 async def health_check():
-    return {"status": "ok", "app": "Secure Media Downloader & Converter"}
+    uptime = int(time.time() - APP_START_TIME)
+    render_url = os.environ.get("RENDER_EXTERNAL_URL") or os.environ.get("SELF_PING_URL")
+    return {
+        "status": "healthy",
+        "service": "Converter RB",
+        "uptime_seconds": uptime,
+        "render_url": render_url,
+        "keep_alive_active": bool(render_url)
+    }
 
 # Mount frontend files
 if FRONTEND_DIR.exists():

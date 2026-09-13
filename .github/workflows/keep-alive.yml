@@ -1,0 +1,19 @@
+name: Render Keep-Alive Heartbeat
+
+on:
+  schedule:
+    # Run every 10 minutes to prevent Render free-tier web service from sleeping (15-min idle timeout)
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render Service
+        run: |
+          RENDER_URL="${{ secrets.RENDER_APP_URL || 'https://rb-convert.onrender.com' }}"
+          echo "Sending keep-alive heartbeat to $RENDER_URL/api/health"
+          RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/resp.json "$RENDER_URL/api/health" || true)
+          echo "HTTP Status: $RESPONSE"
+          cat /tmp/resp.json || true

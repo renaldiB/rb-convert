@@ -1249,25 +1249,50 @@ body {
 
 .slide-badge {
   position: absolute;
-  top: 5px;
-  left: 5px;
+  top: 6px;
+  left: 6px;
   background: rgba(0, 0, 0, 0.75);
   color: #fff;
   font-size: 0.68rem;
   font-weight: 600;
   padding: 0.1rem 0.35rem;
-  border-radius: 3px;
+  border-radius: 4px;
+}
+
+.slide-type-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.12rem 0.4rem;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  backdrop-filter: blur(4px);
+}
+
+.slide-type-badge.type-image {
+  background: rgba(14, 165, 233, 0.85);
+  color: #fff;
+}
+
+.slide-type-badge.type-video {
+  background: rgba(139, 92, 246, 0.88);
+  color: #fff;
 }
 
 .slide-actions {
   padding: 0.45rem;
   display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
   justify-content: center;
 }
 
 .btn-slide-dl {
   width: 100%;
-  padding: 0.35rem 0.5rem;
+  padding: 0.38rem 0.5rem;
   font-size: 0.74rem;
   font-weight: 500;
   background: var(--bg-surface-elevated);
@@ -1277,10 +1302,26 @@ body {
   cursor: pointer;
   transition: var(--transition);
   text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
 }
 
 .btn-slide-dl:hover {
   background: var(--primary);
   color: #fff;
   border-color: var(--primary);
+}
+
+.btn-slide-dl.btn-slide-audio {
+  background: rgba(16, 185, 129, 0.08);
+  border-color: rgba(16, 185, 129, 0.3);
+  color: #10b981;
+}
+
+.btn-slide-dl.btn-slide-audio:hover {
+  background: #10b981;
+  color: #fff;
+  border-color: #10b981;
 }
