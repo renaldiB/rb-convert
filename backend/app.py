@@ -214,131 +214,16 @@ async def health_check():
 
 @app.get("/api/debug-download")
 async def debug_download():
-    import subprocess
-    import yt_dlp
-    from downloader import get_base_ydl_opts, TEMP_DIR
-    import uuid
-    
     url = "https://www.instagram.com/reel/DdJUBLnveAu/?stkn=MTF3NmxwNG5leDhlaA=="
-    test_id = f"dbg_{uuid.uuid4().hex[:8]}"
-    out_template = str(TEMP_DIR / f"{test_id}.%(ext)s")
-    
-    ydl_opts = get_base_ydl_opts()
-    ydl_opts['http_headers']['User-Agent'] = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1'
-    ydl_opts['http_headers']['Accept-Language'] = 'en-US,en;q=0.9'
-    ydl_opts.update({
-        'format': 'bestaudio/bestaudio*/best[acodec!=none]/1/2/3',
-        'outtmpl': out_template,
-        'ignore_no_formats_error': True
-    })
-    
-    report = {}
     try:
-        import re, json
-        from yt_dlp.utils import traverse_obj, urlencode_postdata
-        ydl_raw = yt_dlp.YoutubeDL({'quiet': True})
-        ie = ydl_raw.get_info_extractor('Instagram')
-        video_id = 'DdJUBLnveAu'
-        media_id = str(yt_dlp.extractor.instagram._id_to_pk(video_id))
-        api_check = ie._download_json(
-            f'{ie._API_BASE_URL}/web/get_ruling_for_content/', video_id,
-            errnote=False, fatal=False, query={'content_type': 'MEDIA', 'target_id': media_id}) or {}
-        csrf_token = ie._get_cookies('https://www.instagram.com').get('csrftoken')
-        csrf = csrf_token.value if csrf_token and api_check.get('status') == 'ok' else None
-
-        # Test 1: GraphQL with X-Forwarded-For (Indonesian residential IP)
-        resp1 = ie._download_json(
-            'https://www.instagram.com/api/graphql', video_id,
-            fatal=False, impersonate=True,
-            headers={
-                **ie._api_headers,
-                'X-FB-Friendly-Name': 'PolarisLoggedOutDesktopWWWPostRootContentQuery',
-                'X-CSRFToken': csrf,
-                'X-FB-LSD': ie._lsd_token,
-                'X-Requested-With': 'XMLHttpRequest',
-                'Referer': f'https://www.instagram.com/reel/{video_id}/',
-                'X-Forwarded-For': '114.122.14.50',
-                'Client-IP': '114.122.14.50',
-            }, data=urlencode_postdata({
-                'lsd': ie._lsd_token,
-                'fb_api_caller_class': 'RelayModern',
-                'fb_api_req_friendly_name': 'PolarisLoggedOutDesktopWWWPostRootContentQuery',
-                'server_timestamps': 'true',
-                'variables': json.dumps({'media_id': media_id}),
-                'doc_id': '27130156389949648',
-            }))
-        prod1 = traverse_obj(resp1, ('data', 'xig_polaris_media', 'if_not_gated_logged_out', {dict})) or {}
-        man1 = prod1.get('video_dash_manifest', '')
-        report["exp1_has_audio_rep"] = bool(re.search(r'<Representation\b[^>]*codecs="mp4a[^"]*"', man1))
-        report["exp1_reps"] = re.findall(r'<Representation\b[^>]*>', man1)
-
-        # Test 2: Direct __a=1&__d=dis with mobile headers
-        r_dis = requests.get(f'https://www.instagram.com/reel/{video_id}/?__a=1&__d=dis', headers={
-            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
-            'Accept': '*/*',
-            'X-Requested-With': 'XMLHttpRequest',
-            'Referer': f'https://www.instagram.com/reel/{video_id}/',
-        }, timeout=10)
-        report["exp2_status"] = r_dis.status_code
-        if r_dis.status_code == 200:
-            try:
-                j = r_dis.json()
-                report["exp2_keys"] = list(j.keys())
-                report["exp2_has_audio"] = 'audio' in r_dis.text
-            except Exception as je:
-                report["exp2_json_err"] = str(je)
-
-        # Test 3: Can Render fetch the audio CDN URL that we discovered locally?
-        known_audio_url = "https://instagram.fcgk30-1.fna.fbcdn.net/o1/v/t2/f2/m78/AQM8A3SnaTTsLar7mFLCH5k51svobMn0J41kQQAvnFjAehV5neTWUYDZVwA-jK7uqCTnZwMgdSZS2XA8aSLcJPRfwSOr9Ss_B2pd2j0.mp4?_nc_cat=105&_nc_oc=AdpMyVKNU1NhuGWTmqVjjixmzilJlGDLyplVtNpugiqlEEAA7L_Db4eB8F-fKotJ-rY&_nc_sid=9ca052&_nc_ht=instagram.fcgk30-1.fna.fbcdn.net&_nc_ohc=7XQ2RAkWALgQ7kNvwE1jfLs&efg=eyJ2ZW5jb2RlX3RhZyI6ImlnLXhwdmRzLmNsaXBzLmlnd3d3LUMzLmRhc2hfbG5faGVhYWNfdmJyM19hdWRpbyIsInZpZGVvX2lkIjpudWxsLCJvaWxfdXJsZ2VuX2FwcF9pZCI6OTM2NjE5NzQzMzkyNDU5LCJjbGllbnRfbmFtZSI6ImlnIiwieHB2X2Fzc2V0X2lkIjoxMTA1MzA4ODk4ODI0MTQ3LCJhc3NldF9hZ2VfZGF5cyI6MiwidmlfdXNlY2FzZV9pZCI6MTAwOTksImR1cmF0aW9uX3MiOjIwLCJiaXRyYXRlIjo2NzUzMywidXJsZ2VuX3NvdXJjZSI6Ind3dyJ9&ccb=17-1&_nc_gid=ShbGAPp65eaDkWT9G1bEeQ&_nc_ss=7b689&_nc_zt=28&oh=00_AQLVflgwhkirDV5j1O6H9H-FAqNw3qFOluSxH9qF5FSIaQ&oe=6AA8798A"
-        r_cdn = requests.head(known_audio_url, timeout=10)
-        report["exp3_cdn_head_status"] = r_cdn.status_code
-        report["exp3_cdn_content_length"] = r_cdn.headers.get("Content-Length")
-    except Exception as raw_e:
-        report["raw_graphql_error"] = str(raw_e)
-
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            report["title"] = info.get("title")
-            report["format_id"] = info.get("format_id")
-            report["ext"] = info.get("ext")
-            report["acodec"] = info.get("acodec")
-            report["vcodec"] = info.get("vcodec")
-            report["formats"] = [
-                {"id": f.get("format_id"), "vcodec": f.get("vcodec"), "acodec": f.get("acodec"), "ext": f.get("ext")}
-                for f in info.get("formats", [])
-            ]
+        res = download_media_file(url, "mp3", "instagram", quality="320")
+        fp = res.get("file_path")
+        sz = fp.stat().st_size if fp and fp.exists() else 0
+        if fp and fp.exists():
+            fp.unlink(missing_ok=True)
+        return {"success": True, "size": sz, "ext": res.get("ext"), "title": res.get("title")}
     except Exception as e:
-        report["download_error"] = str(e)
-        
-    downloaded_files = list(TEMP_DIR.glob(f"{test_id}.*"))
-    report["downloaded_files"] = [str(f.name) for f in downloaded_files]
-    
-    if downloaded_files:
-        df = downloaded_files[0]
-        report["file_size"] = df.stat().st_size
-        try:
-            p = subprocess.run(["ffprobe", "-v", "error", "-show_streams", str(df)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10)
-            report["ffprobe_stdout"] = p.stdout
-            report["ffprobe_stderr"] = p.stderr
-        except Exception as pe:
-            report["ffprobe_error"] = str(pe)
-            
-        out_mp3 = TEMP_DIR / f"{test_id}.mp3"
-        try:
-            c = subprocess.run(["ffmpeg", "-y", "-i", str(df), "-map", "0:a:0?", "-vn", "-c:a", "libmp3lame", "-b:a", "320k", str(out_mp3)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=20)
-            report["ffmpeg_returncode"] = c.returncode
-            report["ffmpeg_stderr"] = c.stderr[-800:] if c.stderr else ""
-            report["mp3_exists"] = out_mp3.exists()
-            report["mp3_size"] = out_mp3.stat().st_size if out_mp3.exists() else 0
-        except Exception as ce:
-            report["ffmpeg_error"] = str(ce)
-            
-        for f in list(TEMP_DIR.glob(f"{test_id}.*")):
-            try: f.unlink()
-            except: pass
-            
-    return report
+        return {"success": False, "error": str(e)}
 
 # Mount frontend files
 if FRONTEND_DIR.exists():

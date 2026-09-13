@@ -91,6 +91,8 @@ def get_base_ydl_opts() -> Dict[str, Any]:
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
             'Accept-Language': 'en-US,en;q=0.9',
+            'X-Forwarded-For': '114.122.14.50',
+            'Client-IP': '114.122.14.50',
         }
     }
     
@@ -914,6 +916,8 @@ def extract_media_info_ytdlp(url: str, platform: str) -> Dict[str, Any]:
     if platform == "instagram":
         ydl_opts['http_headers']['User-Agent'] = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1'
         ydl_opts['http_headers']['Accept-Language'] = 'en-US,en;q=0.9'
+        ydl_opts['http_headers']['X-Forwarded-For'] = '114.122.14.50'
+        ydl_opts['http_headers']['Client-IP'] = '114.122.14.50'
     ydl_opts.update({
         'skip_download': True,
         'extract_flat': 'in_playlist',
@@ -1119,6 +1123,8 @@ def download_media_file_ytdlp(url: str, format_type: str, platform: str, downloa
                 ydl_opts['http_headers'] = {
                     'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
                     'Accept-Language': 'en-US,en;q=0.9',
+                    'X-Forwarded-For': '114.122.14.50',
+                    'Client-IP': '114.122.14.50',
                 }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
@@ -1153,6 +1159,8 @@ def download_media_file_ytdlp(url: str, format_type: str, platform: str, downloa
     if platform == "instagram":
         ydl_opts['http_headers']['User-Agent'] = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1'
         ydl_opts['http_headers']['Accept-Language'] = 'en-US,en;q=0.9'
+        ydl_opts['http_headers']['X-Forwarded-For'] = '114.122.14.50'
+        ydl_opts['http_headers']['Client-IP'] = '114.122.14.50'
     ydl_opts.update({
         'max_filesize': 150 * 1024 * 1024,
         'outtmpl': out_template,
@@ -1374,6 +1382,8 @@ def download_image_directly(url: str, download_id: str, slide_index: Optional[in
             'http_headers': {
                 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
                 'Accept-Language': 'en-US,en;q=0.9',
+                'X-Forwarded-For': '114.122.14.50',
+                'Client-IP': '114.122.14.50',
             }
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
