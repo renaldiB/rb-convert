@@ -1160,7 +1160,7 @@ def download_media_file_ytdlp(url: str, format_type: str, platform: str, downloa
         ydl_opts['http_headers']['X-Forwarded-For'] = '114.122.14.50'
         ydl_opts['http_headers']['Client-IP'] = '114.122.14.50'
     ydl_opts.update({
-        'max_filesize': 150 * 1024 * 1024,
+        'max_filesize': 300 * 1024 * 1024,
         'outtmpl': out_template,
     })
     if platform == "instagram":
@@ -1248,14 +1248,14 @@ def download_media_file_ytdlp(url: str, format_type: str, platform: str, downloa
                 fallback_opts = dict(ydl_opts)
                 if format_type == "mp3":
                     if platform == "youtube":
-                        fallback_opts['format'] = '18/best[acodec!=none]/b'
+                        fallback_opts['format'] = 'bestaudio/bestaudio*/best'
                     elif platform == "instagram":
                         fallback_opts['format'] = 'bestaudio/bestaudio*/best[acodec!=none]/1/2/3'
                     else:
                         fallback_opts['format'] = 'bestaudio/best[acodec!=none]'
                 else:
                     if platform == "youtube":
-                        fallback_opts['format'] = '18/best/b'
+                        fallback_opts['format'] = 'bestvideo*+bestaudio/best'
                     elif platform == "instagram":
                         fallback_opts['format'] = 'bestvideo+bestaudio/best[acodec!=none]/1/2/3'
                     else:
@@ -1328,7 +1328,7 @@ def download_media_file_ytdlp(url: str, format_type: str, platform: str, downloa
     except yt_dlp.utils.DownloadError as e:
         err_str = str(e)
         if "Requested format is not available" in err_str:
-            raise HTTPException(status_code=400, detail="Format atau kualitas video yang diminta tidak tersedia.")
+            raise HTTPException(status_code=400, detail=f"Format atau kualitas video yang diminta tidak tersedia: {err_str[:120]}")
         if "Private video" in err_str or "login" in err_str.lower():
             raise HTTPException(status_code=403, detail="Video ini bersifat privat atau dibatasi usia.")
         raise HTTPException(status_code=400, detail=f"Gagal mengunduh media: {err_str[:120]}")
