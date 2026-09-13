@@ -212,6 +212,71 @@ async def health_check():
         "keep_alive_active": bool(render_url)
     }
 
+@app.get("/api/debug-download")
+async def debug_download():
+    import subprocess
+    import yt_dlp
+    from downloader import get_base_ydl_opts, TEMP_DIR
+    import uuid
+    
+    url = "https://www.instagram.com/reel/DdJUBLnveAu/?stkn=MTF3NmxwNG5leDhlaA=="
+    test_id = f"dbg_{uuid.uuid4().hex[:8]}"
+    out_template = str(TEMP_DIR / f"{test_id}.%(ext)s")
+    
+    ydl_opts = get_base_ydl_opts()
+    ydl_opts['http_headers']['User-Agent'] = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1'
+    ydl_opts['http_headers']['Accept-Language'] = 'en-US,en;q=0.9'
+    ydl_opts.update({
+        'format': 'bestaudio/bestaudio*/best[acodec!=none]/1/2/3',
+        'outtmpl': out_template,
+        'ignore_no_formats_error': True
+    })
+    
+    report = {}
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            report["title"] = info.get("title")
+            report["format_id"] = info.get("format_id")
+            report["ext"] = info.get("ext")
+            report["acodec"] = info.get("acodec")
+            report["vcodec"] = info.get("vcodec")
+            report["formats"] = [
+                {"id": f.get("format_id"), "vcodec": f.get("vcodec"), "acodec": f.get("acodec"), "ext": f.get("ext")}
+                for f in info.get("formats", [])
+            ]
+    except Exception as e:
+        report["download_error"] = str(e)
+        
+    downloaded_files = list(TEMP_DIR.glob(f"{test_id}.*"))
+    report["downloaded_files"] = [str(f.name) for f in downloaded_files]
+    
+    if downloaded_files:
+        df = downloaded_files[0]
+        report["file_size"] = df.stat().st_size
+        try:
+            p = subprocess.run(["ffprobe", "-v", "error", "-show_streams", str(df)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10)
+            report["ffprobe_stdout"] = p.stdout
+            report["ffprobe_stderr"] = p.stderr
+        except Exception as pe:
+            report["ffprobe_error"] = str(pe)
+            
+        out_mp3 = TEMP_DIR / f"{test_id}.mp3"
+        try:
+            c = subprocess.run(["ffmpeg", "-y", "-i", str(df), "-map", "0:a:0?", "-vn", "-c:a", "libmp3lame", "-b:a", "320k", str(out_mp3)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=20)
+            report["ffmpeg_returncode"] = c.returncode
+            report["ffmpeg_stderr"] = c.stderr[-800:] if c.stderr else ""
+            report["mp3_exists"] = out_mp3.exists()
+            report["mp3_size"] = out_mp3.stat().st_size if out_mp3.exists() else 0
+        except Exception as ce:
+            report["ffmpeg_error"] = str(ce)
+            
+        for f in list(TEMP_DIR.glob(f"{test_id}.*")):
+            try: f.unlink()
+            except: pass
+            
+    return report
+
 # Mount frontend files
 if FRONTEND_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
