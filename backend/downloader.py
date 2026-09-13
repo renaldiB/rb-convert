@@ -134,37 +134,103 @@ def format_duration(seconds: Optional[int]) -> str:
     return f"{m:02d}:{s:02d}"
 
 def stream_download_to_file(download_url: str, target_path: Path, headers: Optional[Dict[str, str]] = None, max_size: int = 150 * 1024 * 1024) -> None:
-    """Streams a remote media file directly to disk using persistent session."""
-    if not headers:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    """Streams a remote media file directly to disk with multi-tier fallback for CDN anti-bot / 403."""
     clean_url = unescape(download_url).replace('\\/', '/').replace('\\u0026', '&').replace('&amp;', '&').strip()
-    session = get_http_session()
-    try:
-        resp = session.get(clean_url, headers=headers, stream=True, timeout=30)
-        if resp.status_code != 200:
-            raise HTTPException(status_code=400, detail=f"Gagal mengunduh file media dari penyedia (Status {resp.status_code}).")
-        bytes_written = 0
-        with open(target_path, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=65536):
-                if chunk:
-                    bytes_written += len(chunk)
-                    if bytes_written > max_size:
-                        raise HTTPException(status_code=413, detail="File media melebihi batas ukuran maksimum 150MB.")
-                    f.write(chunk)
-    except HTTPException:
+    
+    parsed = urllib.parse.urlparse(clean_url)
+    hostname = (parsed.hostname or "").lower()
+    is_cdn = any(cdn in hostname for cdn in ("fbcdn.net", "cdninstagram.com", "tiktokcdn.com", "byteoversea.com", "googlevideo.com"))
+    
+    user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
+    
+    attempts: List[Dict[str, Any]] = []
+    
+    # Tier 1: Clean request without cookies, clean browser UA, NO Referer for CDN
+    tier1_headers = {'User-Agent': user_agent, 'Accept': '*/*', 'Accept-Encoding': 'identity'}
+    if not is_cdn and headers and 'Referer' in headers:
+        tier1_headers['Referer'] = headers['Referer']
+    attempts.append({'headers': tier1_headers, 'use_session': False})
+    
+    # Tier 2: With caller-supplied headers (if any), without session cookies
+    if headers:
+        tier2_headers = dict(headers)
+        if 'User-Agent' not in tier2_headers:
+            tier2_headers['User-Agent'] = user_agent
+        attempts.append({'headers': tier2_headers, 'use_session': False})
+        
+    # Tier 3: Bare request without custom headers
+    attempts.append({'headers': None, 'use_session': False})
+    
+    # Tier 4: Using persistent session (only for non-CDN domains)
+    if not is_cdn:
+        attempts.append({'headers': headers or {'User-Agent': user_agent}, 'use_session': True})
+
+    last_status = 0
+    success = False
+    
+    for attempt in attempts:
+        req_headers = attempt['headers']
+        use_sess = attempt['use_session']
+        try:
+            if use_sess:
+                req_obj = get_http_session()
+                resp = req_obj.get(clean_url, headers=req_headers, stream=True, timeout=25)
+            else:
+                resp = requests.get(clean_url, headers=req_headers, stream=True, timeout=25)
+                
+            last_status = resp.status_code
+            if resp.status_code in (200, 206):
+                bytes_written = 0
+                with open(target_path, "wb") as f:
+                    for chunk in resp.iter_content(chunk_size=65536):
+                        if chunk:
+                            bytes_written += len(chunk)
+                            if bytes_written > max_size:
+                                raise HTTPException(status_code=413, detail="File media melebihi batas ukuran maksimum 150MB.")
+                            f.write(chunk)
+                if target_path.exists() and target_path.stat().st_size > 0:
+                    success = True
+                    break
+        except HTTPException:
+            if target_path.exists():
+                try:
+                    target_path.unlink()
+                except OSError:
+                    pass
+            raise
+        except Exception as e:
+            logger.warning(f"Download attempt failed for {clean_url[:60]}: {e}")
+            if target_path.exists():
+                try:
+                    target_path.unlink()
+                except OSError:
+                    pass
+
+    # Tier 5: yt-dlp fallback if direct HTTP attempts failed
+    if not success:
+        logger.info(f"Direct HTTP attempts failed (last status: {last_status}). Trying yt-dlp direct stream...")
+        try:
+            ydl_opts = {
+                'quiet': True,
+                'no_warnings': True,
+                'outtmpl': str(target_path),
+                'socket_timeout': 20,
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([clean_url])
+            if target_path.exists() and target_path.stat().st_size > 0:
+                success = True
+        except Exception as yt_err:
+            logger.warning(f"yt-dlp stream download also failed: {yt_err}")
+
+    if not success:
         if target_path.exists():
             try:
                 target_path.unlink()
             except OSError:
                 pass
-        raise
-    except Exception as e:
-        if target_path.exists():
-            try:
-                target_path.unlink()
-            except OSError:
-                pass
-        raise HTTPException(status_code=500, detail=f"Terjadi kesalahan saat mengunduh data: {str(e)}")
+        status_msg = f" (Status {last_status})" if last_status else ""
+        raise HTTPException(status_code=400, detail=f"Gagal mengunduh file media dari penyedia{status_msg}.")
 
 def convert_to_mp3_direct(input_path: Path, output_path: Path, bitrate: str = "320") -> None:
     """
@@ -217,12 +283,14 @@ def create_zip_from_media_items(media_items: List[Dict[str, Any]], download_id: 
         ext = "mp4" if m_type == "video" else "jpg"
         arc_name = f"slide_{idx+1:02d}.{ext}"
         tmp_file = TEMP_DIR / f"{download_id}_slide_{idx+1}.{ext}"
-        try:
-            stream_download_to_file(item_url, tmp_file, headers=headers)
-            if tmp_file.exists() and tmp_file.stat().st_size > 0:
-                return (idx, tmp_file, arc_name)
-        except Exception as e:
-            logger.warning(f"Failed downloading carousel item #{idx+1}: {e}")
+        candidate_urls = item.get("video_urls") or ([item_url] if item_url else [])
+        for c_url in candidate_urls:
+            try:
+                stream_download_to_file(c_url, tmp_file, headers=headers)
+                if tmp_file.exists() and tmp_file.stat().st_size > 0:
+                    return (idx, tmp_file, arc_name)
+            except Exception as e:
+                logger.warning(f"Download attempt failed for carousel item #{idx+1} from {c_url[:50]}: {e}")
         return None
 
     # Execute concurrent downloads (up to 6 parallel workers for speed)
@@ -341,7 +409,8 @@ def extract_threads_info(url: str) -> Dict[str, Any]:
                     if "carousel_media" in node and node["carousel_media"]:
                         for idx, itm in enumerate(node["carousel_media"]):
                             if itm.get("video_versions"):
-                                v_url = itm["video_versions"][0]["url"]
+                                all_v_urls = [v["url"] for v in itm["video_versions"] if v.get("url")]
+                                v_url = all_v_urls[0] if all_v_urls else ""
                                 t_url = (itm.get("image_versions2", {}).get("candidates") or [{}])[0].get("url") or ""
                                 media_items.append({
                                     "index": idx + 1,
@@ -349,9 +418,10 @@ def extract_threads_info(url: str) -> Dict[str, Any]:
                                     "url": v_url,
                                     "thumbnail": t_url,
                                     "width": itm.get("original_width"),
-                                    "height": itm.get("original_height")
+                                    "height": itm.get("original_height"),
+                                    "video_urls": all_v_urls
                                 })
-                                if not primary_video_url:
+                                if not primary_video_url and v_url:
                                     primary_video_url = v_url
                             elif itm.get("image_versions2"):
                                 cands = itm["image_versions2"].get("candidates") or []
@@ -368,13 +438,15 @@ def extract_threads_info(url: str) -> Dict[str, Any]:
                                     if not primary_image_url:
                                         primary_image_url = img_url
                     elif node.get("video_versions"):
-                        v_url = node["video_versions"][0]["url"]
+                        all_v_urls = [v["url"] for v in node["video_versions"] if v.get("url")]
+                        v_url = all_v_urls[0] if all_v_urls else ""
                         t_url = (node.get("image_versions2", {}).get("candidates") or [{}])[0].get("url") or ""
                         media_items.append({
                             "index": 1,
                             "type": "video",
                             "url": v_url,
-                            "thumbnail": t_url
+                            "thumbnail": t_url,
+                            "video_urls": all_v_urls
                         })
                         primary_video_url = v_url
                     elif node.get("image_versions2"):
@@ -477,6 +549,16 @@ def extract_threads_info(url: str) -> Dict[str, Any]:
             {"bitrate": "128", "label": "128 kbps (Ringan)", "size_mb": None}
         ]
 
+    all_post_video_urls = []
+    for m in media_items:
+        if m.get("type") == "video":
+            if m.get("video_urls"):
+                all_post_video_urls.extend(m["video_urls"])
+            elif m.get("url"):
+                all_post_video_urls.append(m["url"])
+    if not all_post_video_urls and primary_video_url:
+        all_post_video_urls.append(primary_video_url)
+
     return {
         "title": title,
         "uploader": uploader,
@@ -493,6 +575,7 @@ def extract_threads_info(url: str) -> Dict[str, Any]:
         "audio_qualities": audio_qualities,
         "url": url,
         "video_url": primary_video_url,
+        "video_urls": all_post_video_urls,
     }
 
 def download_threads_media(url: str, format_type: str, download_id: str, quality: Optional[str] = None, slide_index: Optional[int] = None) -> Dict[str, Any]:
@@ -524,9 +607,21 @@ def download_threads_media(url: str, format_type: str, download_id: str, quality
         target_url = target_item.get("url")
 
         if target_type == "video":
+            video_candidates = target_item.get("video_urls") or ([target_url] if target_url else [])
+            raw_path = TEMP_DIR / f"raw_{download_id}.mp4"
+            dl_err = None
+            for c_url in video_candidates:
+                try:
+                    stream_download_to_file(c_url, raw_path, headers=headers)
+                    if raw_path.exists() and raw_path.stat().st_size > 0:
+                        dl_err = None
+                        break
+                except Exception as e:
+                    dl_err = e
+            if dl_err:
+                raise dl_err
+
             if format_type == "mp3":
-                raw_path = TEMP_DIR / f"raw_{download_id}.mp4"
-                stream_download_to_file(target_url, raw_path, headers=headers)
                 mp3_path = TEMP_DIR / f"{download_id}.mp3"
                 convert_to_mp3_direct(raw_path, mp3_path, bitrate=quality or "320")
                 try:
@@ -540,10 +635,8 @@ def download_threads_media(url: str, format_type: str, download_id: str, quality
                     "mime_type": "audio/mpeg"
                 }
             else:  # mp4
-                out_path = TEMP_DIR / f"{download_id}.mp4"
-                stream_download_to_file(target_url, out_path, headers=headers)
                 return {
-                    "file_path": out_path,
+                    "file_path": raw_path,
                     "title": f"{title}_slide_{target_idx+1}",
                     "ext": "mp4",
                     "mime_type": "video/mp4"
@@ -573,22 +666,37 @@ def download_threads_media(url: str, format_type: str, download_id: str, quality
         }
 
     elif format_type in ("mp4", "mp3"):
-        video_url = info.get("video_url")
-        if not video_url:
+        video_candidates = info.get("video_urls") or ([info["video_url"]] if info.get("video_url") else [])
+        if not video_candidates:
+            for m in media_items:
+                if m.get("type") == "video":
+                    v_cands = m.get("video_urls") or ([m["url"]] if m.get("url") else [])
+                    video_candidates.extend(v_cands)
+                    break
+        if not video_candidates:
             raise HTTPException(status_code=400, detail="Tidak ada video pada postingan Threads ini.")
 
+        raw_path = TEMP_DIR / f"raw_{download_id}.mp4"
+        dl_err = None
+        for c_url in video_candidates:
+            try:
+                stream_download_to_file(c_url, raw_path, headers=headers)
+                if raw_path.exists() and raw_path.stat().st_size > 0:
+                    dl_err = None
+                    break
+            except Exception as e:
+                dl_err = e
+        if dl_err:
+            raise dl_err
+
         if format_type == "mp4":
-            out_path = TEMP_DIR / f"{download_id}.mp4"
-            stream_download_to_file(video_url, out_path, headers=headers)
             return {
-                "file_path": out_path,
+                "file_path": raw_path,
                 "title": title,
                 "ext": "mp4",
                 "mime_type": "video/mp4"
             }
         else:
-            raw_path = TEMP_DIR / f"raw_{download_id}.mp4"
-            stream_download_to_file(video_url, raw_path, headers=headers)
             mp3_path = TEMP_DIR / f"{download_id}.mp3"
             convert_to_mp3_direct(raw_path, mp3_path, bitrate=quality or "320")
             try:

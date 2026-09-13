@@ -157,8 +157,7 @@ async def download_media(req: DownloadRequest, request: Request, background_task
     return FileResponse(
         path=str(file_path),
         media_type=media["mime_type"],
-        headers=headers,
-        filename=filename
+        headers=headers
     )
 
 @app.post("/api/convert-file")
@@ -197,8 +196,7 @@ async def convert_file(
     return FileResponse(
         path=str(output_path),
         media_type="audio/mpeg",
-        headers=headers,
-        filename=filename
+        headers=headers
     )
 
 @app.get("/api/health")

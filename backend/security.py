@@ -64,13 +64,28 @@ def sanitize_filename(name: str, max_len: int = 100) -> str:
 def build_content_disposition(filename: str) -> str:
     """
     Safely construct Content-Disposition header with RFC 5987 / RFC 6266 encoding.
+    Ensures legacy filename parameter contains strictly ASCII characters so Starlette's
+    Latin-1 header encoder never raises UnicodeEncodeError on Unicode/foreign titles.
     """
     sanitized = sanitize_filename(filename)
-    # ASCII fallback
-    ascii_name = re.sub(r'[^\w\s\.-]', '_', sanitized)
-    if not ascii_name:
-        ascii_name = "download"
     
+    parts = sanitized.rsplit('.', 1)
+    if len(parts) == 2:
+        base, ext = parts[0], parts[1]
+        ext_clean = re.sub(r'[^a-zA-Z0-9]', '', ext)
+    else:
+        base, ext_clean = sanitized, ""
+
+    # Strictly ASCII (a-z, A-Z, 0-9, _, -)
+    ascii_base = re.sub(r'[^a-zA-Z0-9_\-]', '_', base)
+    ascii_base = re.sub(r'_+', '_', ascii_base).strip(' _-')
+    if not ascii_base:
+        ascii_base = "download"
+    ascii_name = f"{ascii_base}.{ext_clean}" if ext_clean else ascii_base
+    ascii_name = ascii_name.encode('ascii', 'ignore').decode('ascii')
+    if not ascii_name:
+        ascii_name = f"download.{ext_clean}" if ext_clean else "download"
+
     encoded_name = quote(sanitized, encoding='utf-8')
     return f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{encoded_name}'
 
