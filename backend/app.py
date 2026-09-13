@@ -234,6 +234,53 @@ async def debug_download():
     
     report = {}
     try:
+        import re, json
+        from yt_dlp.utils import traverse_obj, urlencode_postdata
+        ydl_raw = yt_dlp.YoutubeDL({'quiet': True})
+        ie = ydl_raw.get_info_extractor('Instagram')
+        video_id = 'DdJUBLnveAu'
+        media_id = str(yt_dlp.extractor.instagram._id_to_pk(video_id))
+        api_check = ie._download_json(
+            f'{ie._API_BASE_URL}/web/get_ruling_for_content/', video_id,
+            errnote=False, fatal=False, query={'content_type': 'MEDIA', 'target_id': media_id}) or {}
+        csrf_token = ie._get_cookies('https://www.instagram.com').get('csrftoken')
+        csrf = csrf_token.value if csrf_token and api_check.get('status') == 'ok' else None
+
+        response = ie._download_json(
+            'https://www.instagram.com/api/graphql', video_id,
+            fatal=False, impersonate=True,
+            headers={
+                **ie._api_headers,
+                'X-FB-Friendly-Name': 'PolarisLoggedOutDesktopWWWPostRootContentQuery',
+                'X-CSRFToken': csrf,
+                'X-FB-LSD': ie._lsd_token,
+                'X-Requested-With': 'XMLHttpRequest',
+                'Referer': f'https://www.instagram.com/reel/{video_id}/',
+            }, data=urlencode_postdata({
+                'lsd': ie._lsd_token,
+                'fb_api_caller_class': 'RelayModern',
+                'fb_api_req_friendly_name': 'PolarisLoggedOutDesktopWWWPostRootContentQuery',
+                'server_timestamps': 'true',
+                'variables': json.dumps({'media_id': media_id}),
+                'doc_id': '27130156389949648',
+            }))
+
+        media = traverse_obj(response, ('data', 'xig_polaris_media', {dict}))
+        prod = traverse_obj(media, ('if_not_gated_logged_out', {dict}))
+        manifest = prod.get('video_dash_manifest', '') if prod else ''
+        reps = re.findall(r'<Representation\b[^>]*>', manifest)
+        report["manifest_representations"] = reps
+        v_vers = prod.get('video_versions', []) if prod else []
+        report["video_versions_urls"] = [v.get('url')[:100] for v in v_vers]
+        
+        # Test ffprobe on first video_version URL directly
+        if v_vers and v_vers[0].get('url'):
+            p_raw = subprocess.run(["ffprobe", "-v", "error", "-show_streams", v_vers[0]['url']], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10)
+            report["raw_url_ffprobe"] = [line for line in p_raw.stdout.splitlines() if 'codec_name' in line or 'codec_type' in line]
+    except Exception as raw_e:
+        report["raw_graphql_error"] = str(raw_e)
+
+    try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             report["title"] = info.get("title")
