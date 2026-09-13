@@ -212,19 +212,6 @@ async def health_check():
         "keep_alive_active": bool(render_url)
     }
 
-@app.get("/api/debug-download")
-async def debug_download():
-    url = "https://www.instagram.com/reel/DdJUBLnveAu/?stkn=MTF3NmxwNG5leDhlaA=="
-    try:
-        res = download_media_file(url, "mp3", "instagram", quality="320")
-        fp = res.get("file_path")
-        sz = fp.stat().st_size if fp and fp.exists() else 0
-        if fp and fp.exists():
-            fp.unlink(missing_ok=True)
-        return {"success": True, "size": sz, "ext": res.get("ext"), "title": res.get("title")}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
 # Mount frontend files
 if FRONTEND_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
