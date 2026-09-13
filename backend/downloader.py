@@ -1148,9 +1148,12 @@ def download_media_file_ytdlp(url: str, format_type: str, platform: str, downloa
         'ignore_no_formats_error': True
     })
     
-    # 2. Audio MP3 Format: MUST enforce [acodec!=none] so video-only streams are NEVER selected!
+    # 2. Audio MP3 Format: Ensure audio-capable streams are selected across all platforms
     if format_type == "mp3":
-        fmt_selector = 'bestaudio/bestaudio*/best[acodec!=none]/18' if platform == "youtube" else 'bestaudio[acodec!=none]/bestaudio/best[acodec!=none]'
+        if platform == "youtube":
+            fmt_selector = 'bestaudio/bestaudio*/best[acodec!=none]/18'
+        else:
+            fmt_selector = 'bestaudio/bestaudio*/bestvideo+bestaudio/best[acodec!*=none]/best'
         ydl_opts.update({
             'format': fmt_selector,
         })
@@ -1159,9 +1162,15 @@ def download_media_file_ytdlp(url: str, format_type: str, platform: str, downloa
         
     elif format_type == "mp4":
         if quality and quality.isdigit():
-            fmt_selector = f'bestvideo[height<={quality}]+bestaudio/best[height<={quality}]/best'
+            if platform == "youtube":
+                fmt_selector = f'bestvideo[height<={quality}]+bestaudio/best[height<={quality}]/best'
+            else:
+                fmt_selector = f'bestvideo[height<={quality}]+bestaudio/best[height<={quality}][acodec!*=none]/bestvideo+bestaudio/best[acodec!*=none]/best'
         else:
-            fmt_selector = 'bestvideo*+bestaudio/bestvideo*+bestaudio*/best/18' if platform == "youtube" else 'bestvideo*+bestaudio*/best*'
+            if platform == "youtube":
+                fmt_selector = 'bestvideo*+bestaudio/bestvideo*+bestaudio*/best/18'
+            else:
+                fmt_selector = 'bestvideo+bestaudio/bestvideo*+bestaudio*/best[acodec!*=none]/best'
             
         ydl_opts.update({
             'format': fmt_selector,
@@ -1189,7 +1198,10 @@ def download_media_file_ytdlp(url: str, format_type: str, platform: str, downloa
                     logger.info("Attempting Fallback 1: download without cookies...")
                     fb_no_cookie = dict(ydl_opts)
                     fb_no_cookie.pop('cookiefile', None)
-                    fb_no_cookie['format'] = 'bestaudio[acodec!=none]/bestaudio/best[acodec!=none]' if format_type == "mp3" else 'bestvideo*+bestaudio*/best/18'
+                    if format_type == "mp3":
+                        fb_no_cookie['format'] = 'bestaudio/bestaudio*/best[acodec!=none]/18' if platform == "youtube" else 'bestaudio/bestaudio*/bestvideo+bestaudio/best[acodec!*=none]/best'
+                    else:
+                        fb_no_cookie['format'] = 'bestvideo*+bestaudio*/best/18' if platform == "youtube" else 'bestvideo+bestaudio/bestvideo*+bestaudio*/best[acodec!*=none]/best'
                     with yt_dlp.YoutubeDL(fb_no_cookie) as ydl_nc:
                         info = ydl_nc.extract_info(url, download=True)
                         title = info.get('title') or "media"
@@ -1198,9 +1210,12 @@ def download_media_file_ytdlp(url: str, format_type: str, platform: str, downloa
                     logger.warning(f"Fallback 1 failed: {nc_err}")
             
             if not downloaded:
-                logger.info("Attempting Fallback 2: direct format 18...")
+                logger.info("Attempting Fallback 2: robust format fallback...")
                 fallback_opts = dict(ydl_opts)
-                fallback_opts['format'] = '18/best[acodec!=none]/b' if format_type == "mp3" else '18/best/b'
+                if format_type == "mp3":
+                    fallback_opts['format'] = '18/best[acodec!=none]/b' if platform == "youtube" else 'bestaudio/bestvideo+bestaudio/best[acodec!*=none]/18/best'
+                else:
+                    fallback_opts['format'] = '18/best/b' if platform == "youtube" else 'bestvideo+bestaudio/best[acodec!*=none]/best'
                 fallback_opts['extractor_args'] = {
                     'youtube': {
                         'formats': ['missing_pot'],
