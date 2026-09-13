@@ -37,6 +37,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const audioControlCard = document.getElementById('audio-control-card');
   const audioQualitySelect = document.getElementById('audio-quality-select');
   const singleImageCard = document.getElementById('single-image-card');
+  const downloadActionsWrapper = document.getElementById('download-actions-wrapper');
   const carouselSection = document.getElementById('carousel-section');
   const carouselCountBadge = document.getElementById('carousel-count-badge');
   const btnDlAllZip = document.getElementById('btn-dl-all-zip');
@@ -273,12 +274,18 @@ document.addEventListener('DOMContentLoaded', () => {
       
       items.forEach((item, idx) => {
         const isVideo = item.type === 'video';
-        const thumbUrl = item.thumbnail || item.url;
+        const thumbUrl = item.thumbnail || item.url || '';
         const card = document.createElement('div');
         card.className = 'slide-card';
         card.innerHTML = `
           <div class="slide-thumb-wrap">
-            <img src="${thumbUrl}" alt="Slide ${idx + 1}" class="slide-thumb" loading="lazy">
+            ${thumbUrl ? `<img src="${thumbUrl}" alt="Slide ${idx + 1}" class="slide-thumb" loading="lazy" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.classList.remove('hidden');">` : ''}
+            <div class="slide-thumb-fallback ${thumbUrl ? 'hidden' : ''}">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                ${isVideo ? '<polygon points="5 3 19 12 5 21 5 3"></polygon>' : '<rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline>'}
+              </svg>
+              <span>${isVideo ? 'Video' : 'Foto'}</span>
+            </div>
             <span class="slide-badge">#${idx + 1}</span>
             <span class="slide-type-badge ${isVideo ? 'type-video' : 'type-image'}">${isVideo ? '🎥 Video' : '📷 Foto'}</span>
           </div>
@@ -316,6 +323,18 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
       carouselSection.classList.add('hidden');
       singleImageCard.classList.add('hidden');
+    }
+
+    // Toggle downloadActionsWrapper visibility based on active action cards
+    const hasActiveActionCard = !videoControlCard.classList.contains('hidden') || 
+                                !audioControlCard.classList.contains('hidden') || 
+                                !singleImageCard.classList.contains('hidden');
+    if (downloadActionsWrapper) {
+      if (hasActiveActionCard) {
+        downloadActionsWrapper.classList.remove('hidden');
+      } else {
+        downloadActionsWrapper.classList.add('hidden');
+      }
     }
 
     mediaResult.classList.remove('hidden');

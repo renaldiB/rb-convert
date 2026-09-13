@@ -565,8 +565,9 @@ body {
    ========================================================================== */
 .download-actions {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 0.85rem;
+  align-items: start;
   width: 100%;
 }
 
@@ -1207,15 +1208,19 @@ body {
 .btn-zip {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.45rem;
   padding: 0.55rem 1.1rem;
   font-size: 0.84rem;
+  width: auto;
+  min-height: 38px;
 }
 
 .carousel-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(145px, 1fr));
   gap: 0.85rem;
+  width: 100%;
 }
 
 .slide-card {
@@ -1237,14 +1242,38 @@ body {
   position: relative;
   width: 100%;
   aspect-ratio: 1;
-  background: #000;
+  background: #141414;
   overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .slide-thumb {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  display: block;
+}
+
+.slide-thumb-fallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  background: var(--bg-surface-elevated);
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 500;
+  user-select: none;
+}
+
+.slide-thumb-fallback svg {
+  color: var(--primary);
+  opacity: 0.85;
 }
 
 .slide-badge {

@@ -468,19 +468,26 @@ def extract_threads_info(url: str) -> Dict[str, Any]:
     # Method 2: Fallback to regex matching if JSON extraction didn't populate items
     if not media_items:
         clean_html = unescape(html).replace('\\/', '/').replace('\\u0026', '&').replace('&amp;', '&')
-        video_matches = re.findall(r'https:[^"\'\s<>]*(?:fbcdn\.net|cdninstagram\.com)[^"\'\s<>]*\.mp4[^"\'\s<>]*', clean_html)
-        if video_matches:
-            primary_video_url = video_matches[0]
+        raw_video_matches = re.findall(r'https:[^"\'\s<>]*(?:fbcdn\.net|cdninstagram\.com)[^"\'\s<>]*\.mp4[^"\'\s<>]*', clean_html)
+        valid_video_matches = [
+            v for v in raw_video_matches
+            if 'static.cdninstagram.com' not in v and 'rsrc.php' not in v and '/assets/' not in v
+        ]
+        if valid_video_matches:
+            primary_video_url = valid_video_matches[0]
             media_items.append({
                 "index": 1,
                 "type": "video",
                 "url": primary_video_url,
-                "thumbnail": ""
+                "thumbnail": "",
+                "video_urls": valid_video_matches
             })
 
         photo_matches = re.findall(r'https:[^"\'\s<>]*(?:fbcdn\.net|cdninstagram\.com)[^"\'\s<>]*t51\.82787-15[^"\'\s<>]*', clean_html)
         by_media_id: Dict[str, List[str]] = {}
         for m in photo_matches:
+            if 'static.cdninstagram.com' in m or 'rsrc.php' in m:
+                continue
             match_id = re.search(r'_(\d{15,20})_', m)
             if match_id:
                 mid = match_id.group(1)
@@ -502,14 +509,20 @@ def extract_threads_info(url: str) -> Dict[str, Any]:
     # Method 3: Fallback to OpenGraph
     if not media_items:
         og_vid = extract_og_tag(html, "og:video") or extract_og_tag(html, "og:video:secure_url")
-        if og_vid:
+        if og_vid and 'static.cdninstagram.com' not in og_vid and 'rsrc.php' not in og_vid:
             primary_video_url = og_vid
             media_items.append({"index": 1, "type": "video", "url": og_vid, "thumbnail": ""})
         else:
             og_img = extract_og_tag(html, "og:image") or extract_og_tag(html, "og:image:secure_url")
-            if og_img:
+            if og_img and 'static.cdninstagram.com' not in og_img and 'rsrc.php' not in og_img:
                 primary_image_url = og_img
                 media_items.append({"index": 1, "type": "image", "url": og_img, "thumbnail": og_img})
+
+    if not media_items:
+        raise HTTPException(
+            status_code=404,
+            detail="Tidak dapat menemukan media pada postingan Threads ini. Pastikan link aktif, memiliki media, dan akun bersifat publik."
+        )
 
     # Determine media attributes
     has_video = any(m["type"] == "video" for m in media_items)
@@ -666,13 +679,21 @@ def download_threads_media(url: str, format_type: str, download_id: str, quality
         }
 
     elif format_type in ("mp4", "mp3"):
-        video_candidates = info.get("video_urls") or ([info["video_url"]] if info.get("video_url") else [])
+        video_candidates = []
+        if info.get("video_url"):
+            video_candidates.append(info["video_url"])
+        for v in (info.get("video_urls") or []):
+            if v not in video_candidates:
+                video_candidates.append(v)
         if not video_candidates:
             for m in media_items:
                 if m.get("type") == "video":
                     v_cands = m.get("video_urls") or ([m["url"]] if m.get("url") else [])
-                    video_candidates.extend(v_cands)
-                    break
+                    for v in v_cands:
+                        if v not in video_candidates:
+                            video_candidates.append(v)
+                    if video_candidates:
+                        break
         if not video_candidates:
             raise HTTPException(status_code=400, detail="Tidak ada video pada postingan Threads ini.")
 

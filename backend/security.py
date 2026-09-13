@@ -191,9 +191,9 @@ class InMemoryRateLimiter:
         self.requests[client_ip].append(now)
 
 # Global rate limiters
-info_rate_limiter = InMemoryRateLimiter(limit=30, window_seconds=60)
-download_rate_limiter = InMemoryRateLimiter(limit=10, window_seconds=60)
-conversion_rate_limiter = InMemoryRateLimiter(limit=10, window_seconds=60)
+info_rate_limiter = InMemoryRateLimiter(limit=60, window_seconds=60)
+download_rate_limiter = InMemoryRateLimiter(limit=30, window_seconds=60)
+conversion_rate_limiter = InMemoryRateLimiter(limit=30, window_seconds=60)
 
 def get_client_ip(request: Request) -> str:
     """
