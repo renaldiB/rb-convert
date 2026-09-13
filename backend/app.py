@@ -246,7 +246,8 @@ async def debug_download():
         csrf_token = ie._get_cookies('https://www.instagram.com').get('csrftoken')
         csrf = csrf_token.value if csrf_token and api_check.get('status') == 'ok' else None
 
-        response = ie._download_json(
+        # Test 1: GraphQL with X-Forwarded-For (Indonesian residential IP)
+        resp1 = ie._download_json(
             'https://www.instagram.com/api/graphql', video_id,
             fatal=False, impersonate=True,
             headers={
@@ -256,6 +257,8 @@ async def debug_download():
                 'X-FB-LSD': ie._lsd_token,
                 'X-Requested-With': 'XMLHttpRequest',
                 'Referer': f'https://www.instagram.com/reel/{video_id}/',
+                'X-Forwarded-For': '114.122.14.50',
+                'Client-IP': '114.122.14.50',
             }, data=urlencode_postdata({
                 'lsd': ie._lsd_token,
                 'fb_api_caller_class': 'RelayModern',
@@ -264,19 +267,32 @@ async def debug_download():
                 'variables': json.dumps({'media_id': media_id}),
                 'doc_id': '27130156389949648',
             }))
+        prod1 = traverse_obj(resp1, ('data', 'xig_polaris_media', 'if_not_gated_logged_out', {dict})) or {}
+        man1 = prod1.get('video_dash_manifest', '')
+        report["exp1_has_audio_rep"] = bool(re.search(r'<Representation\b[^>]*codecs="mp4a[^"]*"', man1))
+        report["exp1_reps"] = re.findall(r'<Representation\b[^>]*>', man1)
 
-        media = traverse_obj(response, ('data', 'xig_polaris_media', {dict}))
-        prod = traverse_obj(media, ('if_not_gated_logged_out', {dict}))
-        manifest = prod.get('video_dash_manifest', '') if prod else ''
-        reps = re.findall(r'<Representation\b[^>]*>', manifest)
-        report["manifest_representations"] = reps
-        v_vers = prod.get('video_versions', []) if prod else []
-        report["video_versions_urls"] = [v.get('url')[:100] for v in v_vers]
-        
-        # Test ffprobe on first video_version URL directly
-        if v_vers and v_vers[0].get('url'):
-            p_raw = subprocess.run(["ffprobe", "-v", "error", "-show_streams", v_vers[0]['url']], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10)
-            report["raw_url_ffprobe"] = [line for line in p_raw.stdout.splitlines() if 'codec_name' in line or 'codec_type' in line]
+        # Test 2: Direct __a=1&__d=dis with mobile headers
+        r_dis = requests.get(f'https://www.instagram.com/reel/{video_id}/?__a=1&__d=dis', headers={
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+            'Accept': '*/*',
+            'X-Requested-With': 'XMLHttpRequest',
+            'Referer': f'https://www.instagram.com/reel/{video_id}/',
+        }, timeout=10)
+        report["exp2_status"] = r_dis.status_code
+        if r_dis.status_code == 200:
+            try:
+                j = r_dis.json()
+                report["exp2_keys"] = list(j.keys())
+                report["exp2_has_audio"] = 'audio' in r_dis.text
+            except Exception as je:
+                report["exp2_json_err"] = str(je)
+
+        # Test 3: Can Render fetch the audio CDN URL that we discovered locally?
+        known_audio_url = "https://instagram.fcgk30-1.fna.fbcdn.net/o1/v/t2/f2/m78/AQM8A3SnaTTsLar7mFLCH5k51svobMn0J41kQQAvnFjAehV5neTWUYDZVwA-jK7uqCTnZwMgdSZS2XA8aSLcJPRfwSOr9Ss_B2pd2j0.mp4?_nc_cat=105&_nc_oc=AdpMyVKNU1NhuGWTmqVjjixmzilJlGDLyplVtNpugiqlEEAA7L_Db4eB8F-fKotJ-rY&_nc_sid=9ca052&_nc_ht=instagram.fcgk30-1.fna.fbcdn.net&_nc_ohc=7XQ2RAkWALgQ7kNvwE1jfLs&efg=eyJ2ZW5jb2RlX3RhZyI6ImlnLXhwdmRzLmNsaXBzLmlnd3d3LUMzLmRhc2hfbG5faGVhYWNfdmJyM19hdWRpbyIsInZpZGVvX2lkIjpudWxsLCJvaWxfdXJsZ2VuX2FwcF9pZCI6OTM2NjE5NzQzMzkyNDU5LCJjbGllbnRfbmFtZSI6ImlnIiwieHB2X2Fzc2V0X2lkIjoxMTA1MzA4ODk4ODI0MTQ3LCJhc3NldF9hZ2VfZGF5cyI6MiwidmlfdXNlY2FzZV9pZCI6MTAwOTksImR1cmF0aW9uX3MiOjIwLCJiaXRyYXRlIjo2NzUzMywidXJsZ2VuX3NvdXJjZSI6Ind3dyJ9&ccb=17-1&_nc_gid=ShbGAPp65eaDkWT9G1bEeQ&_nc_ss=7b689&_nc_zt=28&oh=00_AQLVflgwhkirDV5j1O6H9H-FAqNw3qFOluSxH9qF5FSIaQ&oe=6AA8798A"
+        r_cdn = requests.head(known_audio_url, timeout=10)
+        report["exp3_cdn_head_status"] = r_cdn.status_code
+        report["exp3_cdn_content_length"] = r_cdn.headers.get("Content-Length")
     except Exception as raw_e:
         report["raw_graphql_error"] = str(raw_e)
 
