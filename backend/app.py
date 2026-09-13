@@ -199,6 +199,61 @@ async def convert_file(
         headers=headers
     )
 
+@app.get("/api/debug-ig")
+async def debug_ig():
+    import shutil, subprocess
+    import yt_dlp
+    from downloader import get_base_ydl_opts
+    
+    url = "https://www.instagram.com/reel/DdJUBLnveAu/?stkn=MTF3NmxwNG5leDhlaA=="
+    report = {
+        "ffmpeg_path": shutil.which("ffmpeg"),
+        "node_path": shutil.which("node"),
+        "deno_path": shutil.which("deno"),
+    }
+    try:
+        f_res = subprocess.run(["ffmpeg", "-version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
+        report["ffmpeg_version"] = f_res.stdout.splitlines()[0] if f_res.stdout else "empty"
+    except Exception as e:
+        report["ffmpeg_error"] = str(e)
+        
+    base_opts = get_base_ydl_opts()
+    base_opts.update({'quiet': True, 'no_warnings': True})
+    try:
+        with yt_dlp.YoutubeDL(base_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            formats = info.get("formats", [])
+            report["format_count"] = len(formats)
+            report["formats"] = [
+                {
+                    "format_id": f.get("format_id"),
+                    "vcodec": f.get("vcodec"),
+                    "acodec": f.get("acodec"),
+                    "ext": f.get("ext"),
+                    "height": f.get("height"),
+                    "filesize": f.get("filesize")
+                }
+                for f in formats
+            ]
+            
+            for sel in [
+                'bestaudio/bestaudio*/best[acodec!=none]/18',
+                'bestaudio/bestaudio*/best[acodec!=none]',
+                'bestvideo+bestaudio/best[acodec!=none]/best',
+                'bestvideo+bestaudio/bestvideo*+bestaudio*/best'
+            ]:
+                try:
+                    ydl_test = yt_dlp.YoutubeDL({'quiet': True, 'format': sel})
+                    fn = ydl_test.build_format_selector(sel)
+                    matched = list(fn(dict(info)))
+                    report[f"sel_{sel}"] = [f.get("format_id") for f in matched]
+                except Exception as e:
+                    report[f"sel_{sel}"] = f"ERROR: {e}"
+    except Exception as e:
+        report["extract_error"] = str(e)
+        
+    return report
+
 @app.get("/api/health")
 @app.get("/api/ping")
 async def health_check():
