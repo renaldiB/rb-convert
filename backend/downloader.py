@@ -107,7 +107,7 @@ def get_base_ydl_opts() -> Dict[str, Any]:
     opts['extractor_args'] = {
         'youtube': {
             'formats': ['missing_pot'],
-            'player_client': ['web_embedded', 'mweb', 'android', 'ios']
+            'player_client': ['android', 'ios', 'mweb']
         }
     }
 
@@ -1162,13 +1162,14 @@ def download_media_file_ytdlp(url: str, format_type: str, platform: str, downloa
     ydl_opts.update({
         'max_filesize': 150 * 1024 * 1024,
         'outtmpl': out_template,
-        'ignore_no_formats_error': True
     })
+    if platform == "instagram":
+        ydl_opts['ignore_no_formats_error'] = True
     
     # 2. Audio MP3 Format: Ensure audio-capable streams are selected across all platforms
     if format_type == "mp3":
         if platform == "youtube":
-            fmt_selector = 'bestaudio/bestaudio*/best[acodec!=none]/18'
+            fmt_selector = 'bestaudio/bestaudio*/best[acodec!=none]/18/b'
         elif platform == "instagram":
             fmt_selector = 'bestaudio/bestaudio*/best[acodec!=none]/1/2/3'
         else:
@@ -1182,14 +1183,14 @@ def download_media_file_ytdlp(url: str, format_type: str, platform: str, downloa
     elif format_type == "mp4":
         if quality and quality.isdigit():
             if platform == "youtube":
-                fmt_selector = f'bestvideo[height<={quality}]+bestaudio/best[height<={quality}]/best'
+                fmt_selector = f'bestvideo[height<={quality}]+bestaudio/best[height<={quality}]/best/18/b'
             elif platform == "instagram":
                 fmt_selector = f'bestvideo[height<={quality}]+bestaudio/best[height<={quality}][acodec!=none]/1/2/3/bestvideo+bestaudio'
             else:
                 fmt_selector = f'bestvideo[height<={quality}]+bestaudio/best[height<={quality}][acodec!=none]/bestvideo+bestaudio'
         else:
             if platform == "youtube":
-                fmt_selector = 'bestvideo*+bestaudio/bestvideo*+bestaudio*/best/18'
+                fmt_selector = 'bestvideo*+bestaudio/bestvideo*+bestaudio*/best/18/b'
             elif platform == "instagram":
                 fmt_selector = 'bestvideo+bestaudio/bestvideo*+bestaudio*/best[acodec!=none]/1/2/3'
             else:
