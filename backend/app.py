@@ -209,7 +209,8 @@ async def health_check():
         "service": "Converter RB",
         "uptime_seconds": uptime,
         "render_url": render_url,
-        "keep_alive_active": bool(render_url)
+        "keep_alive_active": bool(render_url),
+        "has_cookies": bool(os.environ.get("YOUTUBE_COOKIES"))
     }
 
 # Mount frontend files
