@@ -972,6 +972,7 @@ def extract_media_info_ytdlp(url: str, platform: str) -> Dict[str, Any]:
         ydl_opts['http_headers']['Client-IP'] = '114.122.14.50'
     ydl_opts.update({
         'skip_download': True,
+        'extract_flat': 'in_playlist',
         'ignore_no_formats_error': True
     })
 
@@ -1095,6 +1096,25 @@ def extract_media_info_ytdlp(url: str, platform: str) -> Dict[str, Any]:
                     "label": "Original (Kualitas Penuh)",
                     "size_mb": approx_mb
                 })
+
+            if platform == "youtube" and has_video:
+                # Provide selectable quality options (1080p, 720p, 480p, 360p) for YouTube videos
+                yt_presets = [
+                    ("1080", "1080p", "1080p (Full HD)", 1.5),
+                    ("720", "720p", "720p (HD)", 0.9),
+                    ("480", "480p", "480p (Standar)", 0.5),
+                    ("360", "360p", "360p (Hemat)", 0.28)
+                ]
+                existing_quals = {v["quality"] for v in video_qualities}
+                for q_str, res_str, lbl, mb_factor in yt_presets:
+                    if q_str not in existing_quals:
+                        video_qualities.append({
+                            "quality": q_str,
+                            "resolution": res_str,
+                            "label": lbl,
+                            "size_mb": round(dur * mb_factor, 1) if dur > 0 else None
+                        })
+                video_qualities.sort(key=lambda x: int(x["quality"]) if x["quality"].isdigit() else 0, reverse=True)
 
             # Calculate audio qualities with estimated sizes in MB
             audio_qualities = []
