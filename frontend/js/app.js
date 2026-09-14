@@ -198,6 +198,10 @@ document.addEventListener('DOMContentLoaded', () => {
     mediaPlatformTag.textContent = (data.platform || 'Media').toUpperCase();
 
     if (data.thumbnail) {
+      mediaThumb.onerror = () => {
+        mediaThumb.onerror = null;
+        mediaThumb.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='90' viewBox='0 0 160 90'%3E%3Crect width='160' height='90' fill='%231f2937'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%239ca3af' font-size='12' font-family='sans-serif'%3EPratinjau Media%3C/text%3E%3C/svg%3E";
+      };
       mediaThumb.src = data.thumbnail;
       mediaThumb.alt = data.title || 'Thumbnail';
     } else {
@@ -308,11 +312,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (isVideo) {
           const btnVideo = card.querySelector('.btn-slide-video');
           const btnAudio = card.querySelector('.btn-slide-audio');
-          btnVideo.addEventListener('click', () => triggerDownload('mp4', null, idx + 1));
-          btnAudio.addEventListener('click', () => triggerDownload('mp3', '320', idx + 1));
+          btnVideo.addEventListener('click', (e) => triggerDownload('mp4', null, idx + 1, e.currentTarget));
+          btnAudio.addEventListener('click', (e) => triggerDownload('mp3', '320', idx + 1, e.currentTarget));
         } else {
           const btnImg = card.querySelector('.btn-slide-dl');
-          btnImg.addEventListener('click', () => triggerDownload('image', null, idx + 1));
+          btnImg.addEventListener('click', (e) => triggerDownload('image', null, idx + 1, e.currentTarget));
         }
 
         carouselGrid.appendChild(card);
@@ -342,12 +346,12 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Trigger Download Handlers
-  btnDlMp4.addEventListener('click', () => triggerDownload('mp4', videoQualitySelect.value));
-  btnDlMp3.addEventListener('click', () => triggerDownload('mp3', audioQualitySelect.value));
-  btnDlImg.addEventListener('click', () => triggerDownload('image'));
-  btnDlAllZip.addEventListener('click', () => triggerDownload('zip'));
+  btnDlMp4.addEventListener('click', (e) => triggerDownload('mp4', videoQualitySelect.value, null, e.currentTarget));
+  btnDlMp3.addEventListener('click', (e) => triggerDownload('mp3', audioQualitySelect.value, null, e.currentTarget));
+  btnDlImg.addEventListener('click', (e) => triggerDownload('image', null, null, e.currentTarget));
+  btnDlAllZip.addEventListener('click', (e) => triggerDownload('zip', null, null, e.currentTarget));
 
-  async function triggerDownload(format, quality = null, slideIndex = null) {
+  async function triggerDownload(format, quality = null, slideIndex = null, triggerBtn = null) {
     if (!currentMediaData || !currentMediaData.url) return;
 
     dlProgressBox.classList.remove('hidden');
@@ -358,7 +362,7 @@ document.addEventListener('DOMContentLoaded', () => {
     else if (format === 'image') label = slideIndex ? `foto slide #${slideIndex} (JPG)` : 'foto JPG';
 
     dlProgressText.textContent = `Sedang mengunduh dan memproses ${label}...`;
-    setMediaActionButtonsDisabled(true);
+    setMediaActionButtonsDisabled(true, triggerBtn);
 
     try {
       const resp = await fetch('/api/download', {
@@ -420,16 +424,38 @@ document.addEventListener('DOMContentLoaded', () => {
       showAlert(urlAlert, urlAlertMsg, err.message);
       dlProgressBox.classList.add('hidden');
     } finally {
-      setMediaActionButtonsDisabled(false);
+      setMediaActionButtonsDisabled(false, triggerBtn);
     }
   }
 
-  function setMediaActionButtonsDisabled(disabled) {
-    btnDlMp4.disabled = disabled;
-    btnDlMp3.disabled = disabled;
-    btnDlImg.disabled = disabled;
-    btnDlAllZip.disabled = disabled;
-    document.querySelectorAll('.btn-slide-dl').forEach(btn => btn.disabled = disabled);
+  function setMediaActionButtonsDisabled(disabled, triggerBtn = null) {
+    if (btnDlMp4) btnDlMp4.disabled = disabled;
+    if (btnDlMp3) btnDlMp3.disabled = disabled;
+    if (btnDlImg) btnDlImg.disabled = disabled;
+    if (btnDlAllZip) btnDlAllZip.disabled = disabled;
+    if (btnFetch) btnFetch.disabled = disabled;
+    if (videoQualitySelect) videoQualitySelect.disabled = disabled;
+    if (audioQualitySelect) audioQualitySelect.disabled = disabled;
+
+    document.querySelectorAll('.btn-slide-dl, .btn-slide-video, .btn-slide-audio, .btn-zip').forEach(btn => {
+      btn.disabled = disabled;
+    });
+
+    if (triggerBtn) {
+      if (disabled) {
+        triggerBtn.dataset.origHtml = triggerBtn.innerHTML;
+        triggerBtn.innerHTML = `
+          <svg class="btn-spinner" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="display:inline-block; animation:spin 0.8s linear infinite; vertical-align:middle; margin-right:4px;">
+            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" opacity="0.25"></circle>
+            <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="4" stroke-linecap="round"></path>
+          </svg>
+          <span>Mengunduh...</span>
+        `;
+      } else if (triggerBtn.dataset.origHtml) {
+        triggerBtn.innerHTML = triggerBtn.dataset.origHtml;
+        delete triggerBtn.dataset.origHtml;
+      }
+    }
   }
 
   // ==========================================

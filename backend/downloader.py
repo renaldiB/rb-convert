@@ -86,7 +86,9 @@ def get_base_ydl_opts() -> Dict[str, Any]:
         'quiet': True,
         'no_warnings': True,
         'socket_timeout': 15,
-        'concurrent_fragment_downloads': 4,
+        'concurrent_fragment_downloads': 8,
+        'buffersize': 65536,
+        'http_chunk_size': 10485760,
         'remote_components': ['ejs:github'],
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
@@ -243,9 +245,9 @@ def convert_to_mp3_direct(input_path: Path, output_path: Path, bitrate: str = "3
     valid_bitrate = bitrate if bitrate in ("128", "192", "256", "320") else "320"
     
     attempts = [
-        [ffmpeg_cmd, "-y", "-i", str(input_path.resolve()), "-map", "0:a:0?", "-vn", "-c:a", "libmp3lame", "-b:a", f"{valid_bitrate}k", str(output_path.resolve())],
-        [ffmpeg_cmd, "-y", "-i", str(input_path.resolve()), "-map", "0:a:0?", "-vn", "-c:a", "mp3", "-b:a", f"{valid_bitrate}k", str(output_path.resolve())],
-        [ffmpeg_cmd, "-y", "-i", str(input_path.resolve()), "-vn", "-b:a", f"{valid_bitrate}k", str(output_path.resolve())]
+        [ffmpeg_cmd, "-y", "-threads", "0", "-i", str(input_path.resolve()), "-map", "0:a:0?", "-vn", "-c:a", "libmp3lame", "-b:a", f"{valid_bitrate}k", str(output_path.resolve())],
+        [ffmpeg_cmd, "-y", "-threads", "0", "-i", str(input_path.resolve()), "-map", "0:a:0?", "-vn", "-c:a", "mp3", "-b:a", f"{valid_bitrate}k", str(output_path.resolve())],
+        [ffmpeg_cmd, "-y", "-threads", "0", "-i", str(input_path.resolve()), "-vn", "-b:a", f"{valid_bitrate}k", str(output_path.resolve())]
     ]
 
     last_stderr = ""
@@ -736,6 +738,19 @@ def download_threads_media(url: str, format_type: str, download_id: str, quality
 # =========================================================================
 # TikTok Dedicated Handler (TikWM Watermark-Free + Fallback)
 # =========================================================================
+def normalize_tikwm_url(url_or_path: Optional[str]) -> Optional[str]:
+    """Ensures TikWM relative URLs and protocol-relative URLs are fully qualified."""
+    if not url_or_path:
+        return None
+    url_str = str(url_or_path).strip()
+    if not url_str:
+        return None
+    if url_str.startswith("//"):
+        return f"https:{url_str}"
+    if url_str.startswith("/"):
+        return f"https://www.tikwm.com{url_str}"
+    return url_str
+
 def extract_tiktok_info(url: str) -> Dict[str, Any]:
     api_url = "https://www.tikwm.com/api/"
     headers = {'User-Agent': 'Mozilla/5.0'}
@@ -750,11 +765,30 @@ def extract_tiktok_info(url: str) -> Dict[str, Any]:
                 title = d.get("title") or "TikTok Video"
                 uploader = d.get("author", {}).get("nickname") or d.get("author", {}).get("unique_id") or "TikTok User"
                 duration = d.get("duration", 0)
-                thumbnail = d.get("cover") or d.get("origin_cover") or ""
-                images = d.get("images") or []
+                
+                # Fetch high-quality unblocked thumbnail: try TikTok oEmbed first for reliable CDN image
+                thumbnail = ""
+                try:
+                    oembed_resp = session.get(f"https://www.tiktok.com/oembed?url={urllib.parse.quote(url, safe='')}", headers={'User-Agent': 'Mozilla/5.0'}, timeout=3)
+                    if oembed_resp.status_code == 200:
+                        thumbnail = oembed_resp.json().get("thumbnail_url") or ""
+                except Exception:
+                    pass
+                if not thumbnail:
+                    thumbnail = normalize_tikwm_url(d.get("cover") or d.get("origin_cover")) or ""
+
+                raw_images = d.get("images") or []
+                images = [normalize_tikwm_url(img) for img in raw_images if normalize_tikwm_url(img)]
                 is_image = len(images) > 0
                 has_video = not is_image
                 has_audio = True
+
+                play_url = normalize_tikwm_url(d.get("hdplay") or d.get("play") or d.get("wmplay"))
+                
+                # Prioritize music_info.play (direct TikTok CDN link) which is not blocked by TikWM Cloudflare
+                music_info = d.get("music_info") or {}
+                music_cdn = music_info.get("play")
+                music_url = normalize_tikwm_url(music_cdn) if music_cdn else normalize_tikwm_url(d.get("music"))
 
                 video_qualities = []
                 if has_video:
@@ -780,11 +814,11 @@ def extract_tiktok_info(url: str) -> Dict[str, Any]:
                             "url": img,
                             "thumbnail": img
                         })
-                elif has_video:
+                elif has_video and play_url:
                     media_items.append({
                         "index": 1,
                         "type": "video",
-                        "url": d.get("play") or d.get("wmplay") or "",
+                        "url": play_url,
                         "thumbnail": thumbnail
                     })
 
@@ -803,8 +837,8 @@ def extract_tiktok_info(url: str) -> Dict[str, Any]:
                     "video_qualities": video_qualities,
                     "audio_qualities": audio_qualities,
                     "url": url,
-                    "play_url": d.get("play"),
-                    "music_url": d.get("music"),
+                    "play_url": play_url,
+                    "music_url": music_url,
                 }
     except Exception as e:
         logger.warning(f"TikWM primary extraction failed: {e}")
@@ -812,92 +846,112 @@ def extract_tiktok_info(url: str) -> Dict[str, Any]:
     return extract_media_info_ytdlp(url, "tiktok")
 
 def download_tiktok_media(url: str, format_type: str, download_id: str, quality: Optional[str] = None, slide_index: Optional[int] = None) -> Dict[str, Any]:
-    api_url = "https://www.tikwm.com/api/"
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    session = get_http_session()
-
     try:
-        resp = session.post(api_url, data={'url': url, 'count': 12, 'cursor': 0, 'web': 1, 'hd': 1}, headers=headers, timeout=12)
-        if resp.status_code == 200:
-            res_json = resp.json()
-            if res_json.get("code") == 0:
-                d = res_json.get("data", {})
-                title = d.get("title") or "TikTok Video"
-                images = d.get("images") or []
+        # Leverage cached info if available to avoid duplicate network latency
+        info = get_cached_media_info(url, "tiktok")
+        if not info:
+            info = extract_tiktok_info(url)
 
-                if format_type == "zip" or (format_type == "image" and slide_index is None and len(images) > 1):
-                    if not images:
-                        raise HTTPException(status_code=404, detail="Tidak ada gambar pada postingan TikTok ini.")
-                    zip_path = create_zip_from_urls(images, download_id)
-                    return {
-                        "file_path": zip_path,
-                        "title": f"{title}_all_photos",
-                        "ext": "zip",
-                        "mime_type": "application/zip"
-                    }
+        title = info.get("title") or "TikTok Media"
+        images = info.get("image_urls") or []
+        media_items = info.get("media_items") or []
 
-                elif format_type == "image":
-                    if not images:
-                        raise HTTPException(status_code=404, detail="Gambar tidak ditemukan pada postingan TikTok ini.")
-                    target_idx = 0
-                    if slide_index is not None and slide_index > 0:
-                        target_idx = min(slide_index - 1, len(images) - 1)
-                    img_url = images[target_idx]
-                    out_path = TEMP_DIR / f"{download_id}.jpg"
-                    stream_download_to_file(img_url, out_path, headers=headers)
-                    return {
-                        "file_path": out_path,
-                        "title": f"{title}_slide_{target_idx+1}",
-                        "ext": "jpg",
-                        "mime_type": "image/jpeg"
-                    }
-                elif format_type == "mp4":
-                    play_url = d.get("hdplay") or d.get("play") or d.get("wmplay")
-                    if not play_url:
-                        raise HTTPException(status_code=404, detail="Video TikTok tidak dapat diakses.")
-                    out_path = TEMP_DIR / f"{download_id}.mp4"
-                    stream_download_to_file(play_url, out_path, headers=headers)
-                    return {
-                        "file_path": out_path,
-                        "title": title,
-                        "ext": "mp4",
-                        "mime_type": "video/mp4"
-                    }
-                elif format_type == "mp3":
-                    music_url = d.get("music")
-                    if music_url:
-                        raw_audio = TEMP_DIR / f"raw_{download_id}.audio"
-                        stream_download_to_file(music_url, raw_audio, headers=headers)
-                        mp3_path = TEMP_DIR / f"{download_id}.mp3"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+            'Referer': 'https://www.tiktok.com/'
+        }
+
+        if format_type == "zip" or (format_type == "image" and slide_index is None and len(images) > 1):
+            if not images:
+                raise HTTPException(status_code=404, detail="Tidak ada gambar pada postingan TikTok ini.")
+            zip_path = create_zip_from_urls(images, download_id)
+            return {
+                "file_path": zip_path,
+                "title": f"{title}_all_photos",
+                "ext": "zip",
+                "mime_type": "application/zip"
+            }
+
+        elif format_type == "image":
+            if not images:
+                raise HTTPException(status_code=404, detail="Gambar tidak ditemukan pada postingan TikTok ini.")
+            target_idx = 0
+            if slide_index is not None and slide_index > 0:
+                target_idx = min(slide_index - 1, len(images) - 1)
+            img_url = images[target_idx]
+            out_path = TEMP_DIR / f"{download_id}.jpg"
+            stream_download_to_file(img_url, out_path, headers=headers)
+            return {
+                "file_path": out_path,
+                "title": f"{title}_slide_{target_idx+1}",
+                "ext": "jpg",
+                "mime_type": "image/jpeg"
+            }
+
+        elif format_type == "mp4":
+            play_url = info.get("play_url")
+            if not play_url:
+                for m in media_items:
+                    if m.get("type") == "video" and m.get("url"):
+                        play_url = m["url"]
+                        break
+            if not play_url:
+                raise HTTPException(status_code=404, detail="Video TikTok tidak dapat diakses.")
+            out_path = TEMP_DIR / f"{download_id}.mp4"
+            stream_download_to_file(play_url, out_path, headers=headers)
+            return {
+                "file_path": out_path,
+                "title": title,
+                "ext": "mp4",
+                "mime_type": "video/mp4"
+            }
+
+        elif format_type == "mp3":
+            music_url = info.get("music_url")
+            mp3_path = TEMP_DIR / f"{download_id}.mp3"
+            downloaded_audio = False
+
+            # Attempt 1: Direct music stream (e.g. TikTok CDN audio stream)
+            if music_url:
+                try:
+                    raw_audio = TEMP_DIR / f"raw_{download_id}.audio"
+                    stream_download_to_file(music_url, raw_audio, headers=headers)
+                    if raw_audio.exists() and raw_audio.stat().st_size > 1000:
                         convert_to_mp3_direct(raw_audio, mp3_path, bitrate=quality or "320")
                         try:
                             raw_audio.unlink()
                         except OSError:
                             pass
-                        return {
-                            "file_path": mp3_path,
-                            "title": title,
-                            "ext": "mp3",
-                            "mime_type": "audio/mpeg"
-                        }
-                    else:
-                        play_url = d.get("play") or d.get("wmplay")
-                        if not play_url:
-                            raise HTTPException(status_code=404, detail="Audio TikTok tidak dapat diekstrak.")
-                        raw_vid = TEMP_DIR / f"raw_{download_id}.mp4"
-                        stream_download_to_file(play_url, raw_vid, headers=headers)
-                        mp3_path = TEMP_DIR / f"{download_id}.mp3"
-                        convert_to_mp3_direct(raw_vid, mp3_path, bitrate=quality or "320")
-                        try:
-                            raw_vid.unlink()
-                        except OSError:
-                            pass
-                        return {
-                            "file_path": mp3_path,
-                            "title": title,
-                            "ext": "mp3",
-                            "mime_type": "audio/mpeg"
-                        }
+                        if mp3_path.exists() and mp3_path.stat().st_size > 1000:
+                            downloaded_audio = True
+                except Exception as music_err:
+                    logger.warning(f"TikTok direct music stream failed: {music_err}")
+
+            # Attempt 2: Extract audio from video stream
+            if not downloaded_audio:
+                play_url = info.get("play_url")
+                if not play_url:
+                    for m in media_items:
+                        if m.get("type") == "video" and m.get("url"):
+                            play_url = m["url"]
+                            break
+                if not play_url:
+                    raise HTTPException(status_code=404, detail="Audio TikTok tidak dapat diekstrak.")
+                raw_vid = TEMP_DIR / f"raw_{download_id}.mp4"
+                stream_download_to_file(play_url, raw_vid, headers=headers)
+                convert_to_mp3_direct(raw_vid, mp3_path, bitrate=quality or "320")
+                try:
+                    raw_vid.unlink()
+                except OSError:
+                    pass
+
+            return {
+                "file_path": mp3_path,
+                "title": title,
+                "ext": "mp3",
+                "mime_type": "audio/mpeg"
+            }
+
     except HTTPException:
         raise
     except Exception as e:
@@ -918,7 +972,6 @@ def extract_media_info_ytdlp(url: str, platform: str) -> Dict[str, Any]:
         ydl_opts['http_headers']['Client-IP'] = '114.122.14.50'
     ydl_opts.update({
         'skip_download': True,
-        'extract_flat': 'in_playlist',
         'ignore_no_formats_error': True
     })
 
@@ -1225,7 +1278,11 @@ def download_media_file_ytdlp(url: str, format_type: str, platform: str, downloa
                     if format_type == "mp3":
                         fb_no_cookie['format'] = 'bestaudio/bestaudio*/best'
                     else:
-                        fb_no_cookie['format'] = 'bestvideo*+bestaudio/best'
+                        if quality and quality.isdigit():
+                            fb_no_cookie['format'] = f'bestvideo*[height<={quality}]+bestaudio/best[height<={quality}]/best'
+                        else:
+                            fb_no_cookie['format'] = 'bestvideo*+bestaudio/best'
+                        fb_no_cookie['merge_output_format'] = 'mp4'
                     fb_no_cookie['extractor_args'] = {
                         'youtube': {
                             'formats': ['missing_pot'],
@@ -1252,11 +1309,15 @@ def download_media_file_ytdlp(url: str, format_type: str, platform: str, downloa
                         fallback_opts['format'] = 'bestaudio/best[acodec!=none]'
                 else:
                     if platform == "youtube":
-                        fallback_opts['format'] = 'bestvideo*+bestaudio/best'
+                        if quality and quality.isdigit():
+                            fallback_opts['format'] = f'bestvideo*[height<={quality}]+bestaudio/best[height<={quality}]/best'
+                        else:
+                            fallback_opts['format'] = 'bestvideo*+bestaudio/best'
                     elif platform == "instagram":
                         fallback_opts['format'] = 'bestvideo+bestaudio/best[acodec!=none]/1/2/3'
                     else:
                         fallback_opts['format'] = 'bestvideo+bestaudio/best'
+                    fallback_opts['merge_output_format'] = 'mp4'
                 fallback_opts['extractor_args'] = {
                     'youtube': {
                         'formats': ['missing_pot'],
